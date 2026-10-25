@@ -1,0 +1,25 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          python-version: "3.10"
+      - name: Check the tag matches the version
+        run: test "${GITHUB_REF_NAME}" = "v$(uv version --short)"
+      - run: uv sync --locked
+      - run: uv run --locked scripts/check.py
+      - run: uv build
+      - uses: pypa/gh-action-pypi-publish@release/v1
