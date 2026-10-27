@@ -124,6 +124,9 @@ ROUTES: list[tuple[Callable[[Client], object], str, Any, dict[str, Any]]] = [
 class Broken(httpx.SyncByteStream, httpx.AsyncByteStream):
     """A response body that drops the connection partway."""
 
+    def __init__(self) -> None:
+        self.closed = False
+
     def __iter__(self) -> Iterator[bytes]:
         yield HELLO[:2]
         raise httpx.ReadError("The connection dropped.")
@@ -131,6 +134,12 @@ class Broken(httpx.SyncByteStream, httpx.AsyncByteStream):
     async def __aiter__(self) -> AsyncIterator[bytes]:
         yield HELLO[:2]
         raise httpx.ReadError("The connection dropped.")
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 @pytest.mark.parametrize(("call", "route", "body", "reply"), ROUTES, ids=[r[1] for r in ROUTES])
@@ -296,6 +305,16 @@ def test_removes_a_partial_file_when_the_download_stops(
     error = raises(ZeroGenConnectionError, lambda: zerogen.assets.download("a1", path))
     assert str(error) == "The download stopped before it finished."
     assert not path.exists()
+
+
+@pytest.mark.usefixtures("no_backoff")
+def test_closes_a_storage_error_whose_body_stops(make_client: MakeClient) -> None:
+    body = Broken()
+    zerogen, _ = make_client(
+        json_response(download_link(SIGNED)), httpx.Response(500, stream=body), max_retries=0
+    )
+    raises(ZeroGenConnectionError, lambda: zerogen.assets.download("a1"))
+    assert body.closed
 
 
 def test_keeps_an_existing_file_it_cant_open(
