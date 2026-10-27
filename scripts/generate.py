@@ -26,7 +26,6 @@ ROOT = Path(__file__).resolve().parent.parent
 SPEC = ROOT / "openapi.json"
 TYPES = ROOT / "src" / "zerogen" / "types"
 DEFAULT_URL = "https://api.zerogen.com/v1/openapi.json"
-REQUESTS = ("CreateGenerationRequest", "CreateUploadRequest")
 HEADER = "# Generated from openapi.json by scripts/generate.py. Don't edit it by hand."
 CONSTRAINTS = {
     "pattern",
@@ -66,8 +65,9 @@ def main() -> None:
         fetch()
     spec = json.loads(SPEC.read_text(encoding="utf-8"))
     schemas: dict[str, Any] = spec["components"]["schemas"]
-    requests = {name: schemas[name] for name in REQUESTS}
-    responses = {name: loosen(schema) for name, schema in schemas.items() if name not in REQUESTS}
+    names = request_names(spec)
+    requests = {name: schema for name, schema in schemas.items() if name in names}
+    responses = {name: loosen(schema) for name, schema in schemas.items() if name not in names}
     with tempfile.TemporaryDirectory() as scratch:
         generate(
             document(spec, requests, Path(scratch, "requests.json")),
@@ -95,6 +95,19 @@ def fetch() -> None:
         json.dumps(spec, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n"
     )
     print(f"Wrote openapi.json from {url}")
+
+
+def request_names(spec: dict[str, Any]) -> set[str]:
+    """The schemas that operations take as JSON request bodies."""
+    names: set[str] = set()
+    for item in spec["paths"].values():
+        for method in ("get", "post", "put", "patch", "delete"):
+            body: dict[str, Any] = item.get(method, {}).get("requestBody", {})
+            schema: dict[str, Any] = body.get("content", {}).get("application/json", {})
+            ref: str | None = schema.get("schema", {}).get("$ref")
+            if ref is not None:
+                names.add(ref.rsplit("/", 1)[-1])
+    return names
 
 
 def loosen(schema: Any) -> Any:

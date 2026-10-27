@@ -2,8 +2,8 @@
 
 `zerogen`, the Python client for the [ZeroGen API](https://docs.zerogen.com).
 The API's [OpenAPI document](https://api.zerogen.com/v1/openapi.json) is the
-contract; this library adds retries, idempotency, waiting, pagination and
-uploads on top of the types generated from it.
+contract; this library adds retries, idempotency, waiting, pagination,
+uploads and downloads on top of the types generated from it.
 
 ## Rules
 
@@ -21,6 +21,11 @@ uploads on top of the types generated from it.
   `make_client` fixture runs a test once with each.
 - Every `POST` sends an `Idempotency-Key` that the call's retries reuse.
   Retries follow the error's `retryable` and `Retry-After`; keep it that way.
+- Signed storage URLs, for uploads and downloads, go through the client's
+  `_storage` method, which sends only the headers storage needs (never the API
+  key or any caller or client headers) and keeps the URL's signed query out of
+  httpx's request log. A signed URL is a credential, so never put one in an
+  error message or a log.
 - Tests use a scripted httpx transport (`tests/fakes.py`) and never call the
   API.
 - The library supports Python 3.10 and later. Before you commit, run

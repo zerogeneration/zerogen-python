@@ -25,12 +25,36 @@
       "description": "The models an organization can run and their schemas."
     },
     {
-      "name": "Generations",
-      "description": "Quote, create, read, list and cancel generations."
+      "name": "Runs",
+      "description": "Quote, create, read, list and cancel runs."
     },
     {
       "name": "Uploads",
       "description": "Upload files into the Library to use as inputs."
+    },
+    {
+      "name": "Projects",
+      "description": "The organization's projects."
+    },
+    {
+      "name": "Assets",
+      "description": "Search and read Library assets, their lineage and their folders; download their files; rename and favorite them."
+    },
+    {
+      "name": "Folders",
+      "description": "A project's folders: create, rename and move them, and add, move and remove their assets."
+    },
+    {
+      "name": "Labels",
+      "description": "Organization labels: manage them, and add them to assets or remove them."
+    },
+    {
+      "name": "Naming presets",
+      "description": "A project's shared naming presets, for naming a run's outputs."
+    },
+    {
+      "name": "Skills",
+      "description": "The skills available to the key's owner."
     }
   ],
   "paths": {
@@ -92,7 +116,7 @@
           "Account"
         ],
         "summary": "Read the organization's balance",
-        "description": "The organization's funds and monthly limits, shared by every member and project. A new generation's quote must fit within `availableMicroUsd`.\n\nNeeds the `account:read` scope.",
+        "description": "The organization's funds and monthly limits, shared by every member and project. A new run's quote must fit within `availableMicroUsd`.\n\nNeeds the `account:read` scope.",
         "parameters": [
           {
             "name": "projectId",
@@ -171,7 +195,8 @@
               "type": "string",
               "enum": [
                 "image",
-                "video"
+                "video",
+                "speech"
               ]
             }
           },
@@ -197,11 +222,13 @@
                 "video-to-video",
                 "extend-video",
                 "motion-control",
+                "lip-sync",
                 "clean-plate",
                 "render-to-real",
                 "hdr",
                 "outpaint",
-                "reference-video-to-video"
+                "reference-video-to-video",
+                "text-to-speech"
               ]
             }
           },
@@ -327,7 +354,7 @@
           "Models"
         ],
         "summary": "Read a model",
-        "description": "One model and the JSON Schema (2020-12) that `POST /generations` validates its requests against. A deprecated model sends `Deprecation` and `Sunset`.\n\nNeeds the `models:read` scope.",
+        "description": "One model and the JSON Schema (2020-12) that `POST /runs` validates its requests against. A deprecated model sends `Deprecation` and `Sunset`.\n\nNeeds the `models:read` scope.",
         "parameters": [
           {
             "name": "vendor",
@@ -412,14 +439,14 @@
         }
       }
     },
-    "/generations/quote": {
+    "/runs/quote": {
       "post": {
-        "operationId": "quoteGeneration",
+        "operationId": "quoteRun",
         "tags": [
-          "Generations"
+          "Runs"
         ],
-        "summary": "Quote a generation",
-        "description": "Validates and prices a request exactly as create would, and returns the maximum charge create would reserve. Nothing starts and nothing is held.\n\nNeeds the `generations:create` scope.",
+        "summary": "Quote a run",
+        "description": "Validates and prices a request exactly as create would, and returns the maximum charge create would reserve. Nothing starts and nothing is held.\n\nNeeds the `runs:create` scope.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -430,7 +457,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateGenerationRequest"
+                "$ref": "#/components/schemas/CreateRunRequest"
               },
               "example": {
                 "model": "black-forest-labs/flux-2-pro/generate",
@@ -512,14 +539,14 @@
         }
       }
     },
-    "/generations": {
+    "/runs": {
       "post": {
-        "operationId": "createGeneration",
+        "operationId": "createRun",
         "tags": [
-          "Generations"
+          "Runs"
         ],
-        "summary": "Create a generation",
-        "description": "Validates, prices, reserves and starts one generation in a single call. Send `Prefer: wait=N` to hold the response until it ends. Nothing is charged unless every check passes.\n\nNeeds the `generations:create` scope.",
+        "summary": "Create a run",
+        "description": "Validates, prices, reserves and starts one run in a single call. Send `Prefer: wait=N` to hold the response until it ends. Nothing is charged unless every check passes.\n\nNeeds the `runs:create` scope.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -533,7 +560,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CreateGenerationRequest"
+                "$ref": "#/components/schemas/CreateRunRequest"
               },
               "example": {
                 "model": "black-forest-labs/flux-2-pro/generate",
@@ -547,7 +574,7 @@
         },
         "responses": {
           "200": {
-            "description": "The generation has ended, within the requested wait.",
+            "description": "The run has ended, within the requested wait.",
             "headers": {
               "Request-Id": {
                 "$ref": "#/components/headers/Request-Id"
@@ -580,13 +607,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Generation"
+                  "$ref": "#/components/schemas/Run"
                 }
               }
             }
           },
           "202": {
-            "description": "The generation started and has not ended yet.",
+            "description": "The run started and has not ended yet.",
             "headers": {
               "Request-Id": {
                 "$ref": "#/components/headers/Request-Id"
@@ -619,7 +646,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Generation"
+                  "$ref": "#/components/schemas/Run"
                 }
               }
             }
@@ -660,18 +687,18 @@
         }
       },
       "get": {
-        "operationId": "listGenerations",
+        "operationId": "listRuns",
         "tags": [
-          "Generations"
+          "Runs"
         ],
-        "summary": "List generations",
-        "description": "The calling key owner's generations, newest first.\n\nNeeds the `generations:read` scope.",
+        "summary": "List runs",
+        "description": "The calling key owner's runs, newest first.\n\nNeeds the `runs:read` scope.",
         "parameters": [
           {
             "name": "projectId",
             "in": "query",
             "required": false,
-            "description": "Only generations in this project",
+            "description": "Only runs in this project",
             "schema": {
               "type": "string",
               "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -681,7 +708,7 @@
             "name": "folderId",
             "in": "query",
             "required": false,
-            "description": "Only generations filed in this folder; needs projectId",
+            "description": "Only runs filed in this folder; needs projectId",
             "schema": {
               "type": "string",
               "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
@@ -691,7 +718,7 @@
             "name": "limit",
             "in": "query",
             "required": false,
-            "description": "Generations per page; default 10",
+            "description": "Runs per page; default 10",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -710,7 +737,7 @@
         ],
         "responses": {
           "200": {
-            "description": "A page of generations.",
+            "description": "A page of runs.",
             "headers": {
               "Request-Id": {
                 "$ref": "#/components/headers/Request-Id"
@@ -728,7 +755,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GenerationList"
+                  "$ref": "#/components/schemas/RunList"
                 }
               }
             }
@@ -757,20 +784,20 @@
         }
       }
     },
-    "/generations/{id}": {
+    "/runs/{id}": {
       "get": {
-        "operationId": "getGeneration",
+        "operationId": "getRun",
         "tags": [
-          "Generations"
+          "Runs"
         ],
-        "summary": "Read a generation",
-        "description": "One generation and each output's status, asset and error. Send `Prefer: wait=N` to hold the response until it ends. Reads never start or repeat work.\n\nNeeds the `generations:read` scope.",
+        "summary": "Read a run",
+        "description": "One run and each output's status, asset and error. Send `Prefer: wait=N` to hold the response until it ends. Reads never start or repeat work.\n\nNeeds the `runs:read` scope.",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "description": "The generation's ID",
+            "description": "The run's ID",
             "schema": {
               "type": "string"
             }
@@ -781,7 +808,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The generation.",
+            "description": "The run.",
             "headers": {
               "Request-Id": {
                 "$ref": "#/components/headers/Request-Id"
@@ -808,13 +835,13 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Generation"
+                  "$ref": "#/components/schemas/Run"
                 }
               }
             }
           },
           "202": {
-            "description": "With `Prefer: wait`, the generation had not ended when the wait ran out.",
+            "description": "With `Prefer: wait`, the run had not ended when the wait ran out.",
             "headers": {
               "Request-Id": {
                 "$ref": "#/components/headers/Request-Id"
@@ -841,7 +868,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Generation"
+                  "$ref": "#/components/schemas/Run"
                 }
               }
             }
@@ -870,20 +897,20 @@
         }
       }
     },
-    "/generations/{id}/cancel": {
+    "/runs/{id}/cancel": {
       "post": {
-        "operationId": "cancelGeneration",
+        "operationId": "cancelRun",
         "tags": [
-          "Generations"
+          "Runs"
         ],
-        "summary": "Cancel a generation",
-        "description": "Stops the generation's unfinished outputs. Outputs a vendor already finished are kept and charged; cancelling a finished generation returns it unchanged. Takes no body.\n\nNeeds the `generations:cancel` scope.",
+        "summary": "Cancel a run",
+        "description": "Stops the run's unfinished outputs. Outputs a vendor already finished are kept and charged; cancelling a finished run returns it unchanged. Takes no body.\n\nNeeds the `runs:cancel` scope.",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
-            "description": "The generation's ID",
+            "description": "The run's ID",
             "schema": {
               "type": "string"
             }
@@ -894,7 +921,7 @@
         ],
         "responses": {
           "200": {
-            "description": "The generation.",
+            "description": "The run.",
             "headers": {
               "Request-Id": {
                 "$ref": "#/components/headers/Request-Id"
@@ -921,7 +948,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/Generation"
+                  "$ref": "#/components/schemas/Run"
                 }
               }
             }
@@ -1153,7 +1180,7 @@
           "Uploads"
         ],
         "summary": "Complete an upload",
-        "description": "Checks the uploaded bytes and makes them a Library asset to use as a generation input. Completing again returns the same asset. Takes no body.\n\nNeeds the `uploads:create` scope.",
+        "description": "Checks the uploaded bytes and makes them a Library asset to use as a run input. Completing again returns the same asset. Takes no body.\n\nNeeds the `uploads:create` scope.",
         "parameters": [
           {
             "name": "id",
@@ -1228,6 +1255,2120 @@
           }
         }
       }
+    },
+    "/projects": {
+      "get": {
+        "operationId": "listProjects",
+        "tags": [
+          "Projects"
+        ],
+        "summary": "List projects",
+        "description": "The organization's projects, in one page, so `nextCursor` is always null. A test key lists only its API sandbox.\n\nNeeds the `library:read` scope.",
+        "responses": {
+          "200": {
+            "description": "The projects.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/assets": {
+      "get": {
+        "operationId": "searchAssets",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Search assets",
+        "description": "Library assets, newest first unless `sort` says otherwise. Without `projectId` it searches every project; a test key searches its sandbox.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": false,
+            "description": "Only assets in this project",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "folderId",
+            "in": "query",
+            "required": false,
+            "description": "Only assets directly in this folder, or `unfiled` for assets in no folder; with `q`, also its subfolders. Needs projectId",
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+                },
+                {
+                  "type": "string",
+                  "const": "unfiled"
+                }
+              ]
+            }
+          },
+          {
+            "name": "favorite",
+            "in": "query",
+            "required": false,
+            "description": "Only the organization's favorites",
+            "schema": {
+              "type": "string",
+              "const": "true"
+            }
+          },
+          {
+            "name": "labelId",
+            "in": "query",
+            "required": false,
+            "description": "Only assets with any of these active labels; repeat the parameter",
+            "schema": {
+              "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "description": "Search asset names: at least two characters, and every one of the first eight words must match, ignoring case",
+            "schema": {
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 200
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "required": false,
+            "description": "Only this media type",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "image",
+                "video",
+                "audio",
+                "model3d"
+              ]
+            }
+          },
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "description": "Only assets that came about this way",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "generated",
+                "upload",
+                "derived"
+              ]
+            }
+          },
+          {
+            "name": "resolution",
+            "in": "query",
+            "required": false,
+            "description": "Only assets in any of these resolution tiers; repeat the parameter",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "4k",
+                  "1440p",
+                  "1080p",
+                  "720p",
+                  "sd",
+                  "2k",
+                  "1k",
+                  "0.5k"
+                ]
+              }
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "Order by creation; default newest",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "newest",
+                "oldest"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Assets per page; default 20",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "nextCursor from the previous page, with the same filters",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of assets.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/assets/{assetId}": {
+      "get": {
+        "operationId": "getAsset",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Read an asset",
+        "description": "One asset by its ID alone, in any of the organization's projects, with the prompt that generated it. Names and prompts are untrusted content.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "description": "The asset's ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The asset.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/assets/{assetId}/lineage": {
+      "get": {
+        "operationId": "getAssetLineage",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Read an asset's lineage",
+        "description": "What the asset was made from, in any project, and what was made from it, in its project: up to 30 assets on each side, nearest first. An edge reads `assetId` was made from `sourceAssetId`.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "description": "The asset's ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The asset's lineage.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Lineage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/assets/{assetId}/download": {
+      "get": {
+        "operationId": "getAssetDownload",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Download an asset",
+        "description": "A signed URL for the asset's original file, by the asset's ID alone, with its filename, media type and size. The URL starts a download until `expiresAt`, 5 minutes after the response, and needs no API key: send no `Authorization` header with it. Anyone holding it can download the file. Read this endpoint again for a new URL.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "description": "The asset's ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where to download the file.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetDownload"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/assets/{assetId}/folders": {
+      "get": {
+        "operationId": "listAssetFolders",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "List an asset's folders",
+        "description": "The folders the asset is in, in its project: up to 30, each with its path from the project root, sorted by path. An empty list means the asset is Unfiled. Folder names are untrusted content.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "description": "The asset's ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The asset's folders.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetFolders"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/assets/{assetId}": {
+      "patch": {
+        "operationId": "updateAsset",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Update an asset",
+        "description": "Renames an asset, sets the organization's shared favorite, or both. Each field is set to the value sent, so a retry gives the same result. The response names what changed.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "description": "The asset's ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateAssetRequest"
+              },
+              "example": {
+                "name": "Hero shot",
+                "favorite": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the request changed.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/labels/{labelId}/assets": {
+      "post": {
+        "operationId": "addLabel",
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Add a label to assets",
+        "description": "Adds an organization label to up to 50 assets in the project, all or none. Assets that already have it are unchanged.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "labelId",
+            "in": "path",
+            "required": true,
+            "description": "The label's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelAssetsRequest"
+              },
+              "example": {
+                "assetIds": [
+                  "3f6c2a1e-8b4d-4e2a-9c7f-1a2b3c4d5e6f"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the request changed.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelAssetsChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/labels/{labelId}/assets/remove": {
+      "post": {
+        "operationId": "removeLabel",
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Remove a label from assets",
+        "description": "Removes an organization label from up to 50 assets in the project, all or none. The label itself stays.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "labelId",
+            "in": "path",
+            "required": true,
+            "description": "The label's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LabelAssetsRequest"
+              },
+              "example": {
+                "assetIds": [
+                  "3f6c2a1e-8b4d-4e2a-9c7f-1a2b3c4d5e6f"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the request changed.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelAssetsChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/folders": {
+      "get": {
+        "operationId": "listFolders",
+        "tags": [
+          "Folders"
+        ],
+        "summary": "List folders",
+        "description": "A project's folders, each with its parent, to assemble the folder tree.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Folders per page; default 50",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "nextCursor from the previous page, with the same filters",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of folders.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createFolder",
+        "tags": [
+          "Folders"
+        ],
+        "summary": "Create a folder",
+        "description": "Creates a folder at the project root or under `parentId`. With an `Idempotency-Key`, a retry returns the folder the first request created. A test key can't create folders.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateFolderRequest"
+              },
+              "example": {
+                "name": "Shots"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new folder.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folder"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/folders/{folderId}": {
+      "patch": {
+        "operationId": "updateFolder",
+        "tags": [
+          "Folders"
+        ],
+        "summary": "Update a folder",
+        "description": "Renames a folder, moves it under another parent (or to the project root with `parentId: null`), or both. Its assets and subfolders keep their IDs. The response is the folder as it ends.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "folderId",
+            "in": "path",
+            "required": true,
+            "description": "The folder's ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateFolderRequest"
+              },
+              "example": {
+                "name": "Shots, final"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The folder.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folder"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/folders/{folderId}/assets": {
+      "post": {
+        "operationId": "addToFolder",
+        "tags": [
+          "Folders"
+        ],
+        "summary": "Add assets to a folder",
+        "description": "Adds up to 100 assets to the folder, keeping their other folders. The response lists the assets changed and those skipped.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "folderId",
+            "in": "path",
+            "required": true,
+            "description": "The folder's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderAssetsRequest"
+              },
+              "example": {
+                "assetIds": [
+                  "3f6c2a1e-8b4d-4e2a-9c7f-1a2b3c4d5e6f"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the request changed.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderAssetsChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/folders/{folderId}/assets/move": {
+      "post": {
+        "operationId": "moveAssets",
+        "tags": [
+          "Folders"
+        ],
+        "summary": "Move assets to a folder",
+        "description": "Moves up to 100 assets out of `fromFolderId` and into this folder; their other folders keep them. An asset that isn't in `fromFolderId` is still added, but a `fromFolderId` that isn't in the project is not found. The response lists the assets changed and those skipped.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "folderId",
+            "in": "path",
+            "required": true,
+            "description": "The folder's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveAssetsRequest"
+              },
+              "example": {
+                "assetIds": [
+                  "3f6c2a1e-8b4d-4e2a-9c7f-1a2b3c4d5e6f"
+                ],
+                "fromFolderId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the request changed.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderAssetsChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/folders/{folderId}/assets/remove": {
+      "post": {
+        "operationId": "removeFromFolder",
+        "tags": [
+          "Folders"
+        ],
+        "summary": "Remove assets from a folder",
+        "description": "Takes up to 100 assets out of the folder. They stay in the Library and in their other folders; an asset in no folder is unfiled.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "folderId",
+            "in": "path",
+            "required": true,
+            "description": "The folder's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderAssetsRequest"
+              },
+              "example": {
+                "assetIds": [
+                  "3f6c2a1e-8b4d-4e2a-9c7f-1a2b3c4d5e6f"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "What the request changed.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderAssetsChange"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/naming-presets": {
+      "get": {
+        "operationId": "listNamingPresets",
+        "tags": [
+          "Naming presets"
+        ],
+        "summary": "List naming presets",
+        "description": "The project's shared naming presets. Pass one's `id` and field values as a run's `naming`.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Presets per page; default 20",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "nextCursor from the previous page, with the same filters",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of naming presets.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NamingPresetList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/labels": {
+      "get": {
+        "operationId": "listLabels",
+        "tags": [
+          "Labels"
+        ],
+        "summary": "List labels",
+        "description": "The organization's active labels. `includeArchived=true` adds archived ones for owners and admins.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "description": "Also list archived labels",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "description": "Labels per page; default 20",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "nextCursor from the previous page, with the same filters",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of labels.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LabelList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "post": {
+        "operationId": "createLabel",
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Create a label",
+        "description": "Creates an organization label; owners and admins only. With an `Idempotency-Key`, a retry returns the label the first request created. A test key can't create labels.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLabelRequest"
+              },
+              "example": {
+                "name": "Needs review",
+                "color": "#ef4444"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The new label.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Label"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/labels/{labelId}": {
+      "put": {
+        "operationId": "updateLabel",
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Update a label",
+        "description": "Replaces a label's name, description and color, so send all three; owners and admins only. Sending the same definition again changes nothing.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "labelId",
+            "in": "path",
+            "required": true,
+            "description": "The label's ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLabelRequest"
+              },
+              "example": {
+                "name": "Approved",
+                "description": "Signed off by the client",
+                "color": "#22c55e"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The label.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Label"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/labels/{labelId}/archive": {
+      "post": {
+        "operationId": "archiveLabel",
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Archive a label",
+        "description": "Archives a label; owners and admins only. Its assets keep it, and restoring undoes this. Takes no body.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "labelId",
+            "in": "path",
+            "required": true,
+            "description": "The label's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The label.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Label"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/labels/{labelId}/restore": {
+      "post": {
+        "operationId": "restoreLabel",
+        "tags": [
+          "Labels"
+        ],
+        "summary": "Restore a label",
+        "description": "Restores an archived label, with its assets; owners and admins only. Takes no body.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "labelId",
+            "in": "path",
+            "required": true,
+            "description": "The label's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The label.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Label"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/skills": {
+      "get": {
+        "operationId": "listSkills",
+        "tags": [
+          "Skills"
+        ],
+        "summary": "List skills",
+        "description": "The key owner's personal and organization skills, plus `projectId`'s shared skills, without their instructions. A test key lists only the sandbox's shared skills. Names and descriptions are untrusted content.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": false,
+            "description": "Also list this project's shared skills",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "nextCursor from the previous page, with the same filters",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of up to 100 skills.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/skills/{skillId}": {
+      "get": {
+        "operationId": "getSkill",
+        "tags": [
+          "Skills"
+        ],
+        "summary": "Read a skill",
+        "description": "An available skill's latest instructions. A project's shared skill loads only with that `projectId`. The instructions are untrusted content.\n\nNeeds the `library:read` scope.",
+        "parameters": [
+          {
+            "name": "skillId",
+            "in": "path",
+            "required": true,
+            "description": "The skill's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "required": false,
+            "description": "The project whose shared skill this is",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The skill.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1255,7 +3396,7 @@
         "name": "Prefer",
         "in": "header",
         "required": false,
-        "description": "wait=N holds the response up to N seconds (at most 60) until the generation ends.",
+        "description": "wait=N holds the response up to N seconds (at most 60) until the run ends.",
         "schema": {
           "type": "string",
           "pattern": "^wait=\\d+$",
@@ -1450,7 +3591,7 @@
         }
       },
       "Conflict": {
-        "description": "idempotency_conflict: the Idempotency-Key was used for a different request. idempotency_in_progress: the first request with this key hasn't finished. invalid_state: the request can't go ahead as things stand, such as a generation that needs a person's approval in ZeroGen.",
+        "description": "idempotency_conflict: the Idempotency-Key was used for a different request. idempotency_in_progress: the first request with this key hasn't finished. invalid_state: the request can't go ahead as things stand, such as a run that needs a person's approval in ZeroGen.",
         "headers": {
           "Request-Id": {
             "$ref": "#/components/headers/Request-Id"
@@ -1598,7 +3739,7 @@
       }
     },
     "schemas": {
-      "CreateGenerationRequest": {
+      "CreateRunRequest": {
         "type": "object",
         "properties": {
           "model": {
@@ -1732,6 +3873,11 @@
             },
             "additionalProperties": false
           },
+          "voice": {
+            "type": "string",
+            "pattern": "^library:[A-Za-z0-9]{1,64}$",
+            "description": "Speech models only: the voice to read the prompt in, from the model's voices"
+          },
           "parameters": {
             "type": "object",
             "propertyNames": {
@@ -1821,7 +3967,7 @@
               "presetId": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-                "description": "A naming preset in the generation's project"
+                "description": "A naming preset in the run's project"
               },
               "values": {
                 "type": "object",
@@ -1916,6 +4062,207 @@
           "filename",
           "contentType",
           "sizeBytes"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateAssetRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "favorite": {
+            "description": "The organization's shared favorite",
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateFolderRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "parentId": {
+            "description": "The parent folder; omit or null for the project root",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateFolderRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "parentId": {
+            "description": "The new parent folder, or null to move it to the project root",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "FolderAssetsRequest": {
+        "type": "object",
+        "properties": {
+          "assetIds": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "Up to 100 assets"
+          }
+        },
+        "required": [
+          "assetIds"
+        ],
+        "additionalProperties": false
+      },
+      "MoveAssetsRequest": {
+        "type": "object",
+        "properties": {
+          "assetIds": {
+            "minItems": 1,
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "Up to 100 assets"
+          },
+          "fromFolderId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "The folder to take the assets out of; their other folders keep them"
+          }
+        },
+        "required": [
+          "assetIds",
+          "fromFolderId"
+        ],
+        "additionalProperties": false
+      },
+      "CreateLabelRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "#ef4444",
+              "#f97316",
+              "#f59e0b",
+              "#eab308",
+              "#84cc16",
+              "#22c55e",
+              "#14b8a6",
+              "#06b6d4",
+              "#3b82f6",
+              "#6366f1",
+              "#8b5cf6",
+              "#ec4899"
+            ],
+            "description": "One of the preset colors: Red #ef4444, Orange #f97316, Amber #f59e0b, Yellow #eab308, Lime #84cc16, Green #22c55e, Teal #14b8a6, Cyan #06b6d4, Blue #3b82f6, Indigo #6366f1, Violet #8b5cf6, Pink #ec4899."
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateLabelRequest": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 280
+          },
+          "color": {
+            "type": "string",
+            "enum": [
+              "#ef4444",
+              "#f97316",
+              "#f59e0b",
+              "#eab308",
+              "#84cc16",
+              "#22c55e",
+              "#14b8a6",
+              "#06b6d4",
+              "#3b82f6",
+              "#6366f1",
+              "#8b5cf6",
+              "#ec4899"
+            ],
+            "description": "One of the preset colors: Red #ef4444, Orange #f97316, Amber #f59e0b, Yellow #eab308, Lime #84cc16, Green #22c55e, Teal #14b8a6, Cyan #06b6d4, Blue #3b82f6, Indigo #6366f1, Violet #8b5cf6, Pink #ec4899."
+          }
+        },
+        "required": [
+          "name",
+          "description",
+          "color"
+        ],
+        "additionalProperties": false
+      },
+      "LabelAssetsRequest": {
+        "type": "object",
+        "properties": {
+          "assetIds": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "Up to 50 assets"
+          }
+        },
+        "required": [
+          "assetIds"
         ],
         "additionalProperties": false
       },
@@ -2056,13 +4403,13 @@
                 "type": "null"
               }
             ],
-            "description": "Reserved for generations that have not settled; a hold is not a charge"
+            "description": "Reserved for runs that have not settled; a hold is not a charge"
           },
           "availableMicroUsd": {
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991,
-            "description": "What a new generation's quote must fit within; it can be negative"
+            "description": "What a new run's quote must fit within; it can be negative"
           },
           "unlimited": {
             "type": "boolean",
@@ -2178,7 +4525,8 @@
             "type": "string",
             "enum": [
               "image",
-              "video"
+              "video",
+              "speech"
             ]
           },
           "operation": {
@@ -2198,11 +4546,13 @@
               "video-to-video",
               "extend-video",
               "motion-control",
+              "lip-sync",
               "clean-plate",
               "render-to-real",
               "hdr",
               "outpaint",
-              "reference-video-to-video"
+              "reference-video-to-video",
+              "text-to-speech"
             ]
           },
           "status": {
@@ -2274,7 +4624,8 @@
             "type": "string",
             "enum": [
               "image",
-              "video"
+              "video",
+              "speech"
             ]
           },
           "operation": {
@@ -2294,11 +4645,13 @@
               "video-to-video",
               "extend-video",
               "motion-control",
+              "lip-sync",
               "clean-plate",
               "render-to-real",
               "hdr",
               "outpaint",
-              "reference-video-to-video"
+              "reference-video-to-video",
+              "text-to-speech"
             ]
           },
           "status": {
@@ -2327,7 +4680,7 @@
               "type": "string"
             },
             "additionalProperties": {},
-            "description": "JSON Schema (2020-12) for POST /v1/generations with this model; x-roles lists each input role's accepted media and limits"
+            "description": "JSON Schema (2020-12) for POST /v1/runs with this model; x-roles lists each input role's accepted media and limits"
           }
         },
         "required": [
@@ -2380,7 +4733,7 @@
         ],
         "additionalProperties": false
       },
-      "Generation": {
+      "Run": {
         "type": "object",
         "properties": {
           "id": {
@@ -2625,7 +4978,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "held: an amount is reserved and nothing is charged yet; charged: chargedMicroUsd is the final charge; released: the hold ended with no charge; null: billing never admitted the generation, so nothing was held or charged"
+                "description": "held: an amount is reserved and nothing is charged yet; charged: chargedMicroUsd is the final charge; released: the hold ended with no charge; null: billing never admitted the run, so nothing was held or charged"
               },
               "hold": {
                 "type": "object",
@@ -2637,7 +4990,7 @@
                       "ended",
                       "needs_attention"
                     ],
-                    "description": "running: the generation has not ended; ended: it ended and the hold is still pending; needs_attention: it has stayed pending 30 minutes after ending, or 24 hours after admission with no end recorded (endedAt then stays null), so ZeroGen is looking into it"
+                    "description": "running: the run has not ended; ended: it ended and the hold is still pending; needs_attention: it has stayed pending 30 minutes after ending, or 24 hours after admission with no end recorded (endedAt then stays null), so ZeroGen is looking into it"
                   },
                   "endedAt": {
                     "anyOf": [
@@ -2650,7 +5003,7 @@
                         "type": "null"
                       }
                     ],
-                    "description": "When the generation ended; null while it runs or when no end was recorded"
+                    "description": "When the run ended; null while it runs or when no end was recorded"
                   }
                 },
                 "required": [
@@ -2658,7 +5011,7 @@
                   "endedAt"
                 ],
                 "additionalProperties": false,
-                "description": "While held, where the generation stands. It reports facts, not what settlement will do"
+                "description": "While held, where the run stands. It reports facts, not what settlement will do"
               },
               "quotedMicroUsd": {
                 "anyOf": [
@@ -2754,17 +5107,17 @@
         ],
         "additionalProperties": false
       },
-      "GenerationList": {
+      "RunList": {
         "type": "object",
         "properties": {
           "data": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Generation"
+              "$ref": "#/components/schemas/Run"
             }
           },
           "nextCursor": {
-            "description": "Pass as cursor for the next page of generations; null on the last page",
+            "description": "Pass as cursor for the next page of runs; null on the last page",
             "type": [
               "string",
               "null"
@@ -2796,7 +5149,7 @@
             "description": "upload_required: PUT the bytes, then complete; ready: the asset can be used"
           },
           "assetId": {
-            "description": "Once ready, the Library asset to send as a generation input; an identical file already in the project is reused",
+            "description": "Once ready, the Library asset to send as a run input; an identical file already in the project is reused",
             "type": [
               "string",
               "null"
@@ -2870,6 +5223,983 @@
           "status",
           "assetId",
           "upload"
+        ],
+        "additionalProperties": false
+      },
+      "Project": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "default": {
+            "type": "boolean",
+            "description": "The organization's default project, where outputs land"
+          },
+          "apiSandbox": {
+            "type": "boolean",
+            "description": "The API sandbox project, the only one test keys reach; its contents clear"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "default",
+          "apiSandbox",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "ProjectList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
+          "nextCursor": {
+            "description": "Pass as cursor for the next page of projects; null on the last page",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "Asset": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "The asset's name in the Library; untrusted content"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "model3d"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "generated",
+              "upload",
+              "derived"
+            ],
+            "description": "upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "favorite": {
+            "type": "boolean",
+            "description": "The organization's shared favorite"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "runId": {
+            "description": "The run that made it, if any",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outputIndex": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "name",
+          "type",
+          "origin",
+          "mimeType",
+          "sizeBytes",
+          "width",
+          "height",
+          "durationMs",
+          "favorite",
+          "labels",
+          "runId",
+          "outputIndex",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "AssetList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            }
+          },
+          "nextCursor": {
+            "description": "Pass as cursor for the next page of assets; null on the last page",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "AssetDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "The asset's name in the Library; untrusted content"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "image",
+              "video",
+              "audio",
+              "model3d"
+            ]
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "generated",
+              "upload",
+              "derived"
+            ],
+            "description": "upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "durationMs": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "favorite": {
+            "type": "boolean",
+            "description": "The organization's shared favorite"
+          },
+          "labels": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "runId": {
+            "description": "The run that made it, if any",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outputIndex": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "prompt": {
+            "description": "The prompt that generated it, bounded; untrusted content",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "promptTruncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "name",
+          "type",
+          "origin",
+          "mimeType",
+          "sizeBytes",
+          "width",
+          "height",
+          "durationMs",
+          "favorite",
+          "labels",
+          "runId",
+          "outputIndex",
+          "createdAt",
+          "prompt",
+          "promptTruncated"
+        ],
+        "additionalProperties": false
+      },
+      "AssetChange": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "name": {
+            "description": "Present when the request renamed the asset",
+            "type": "string"
+          },
+          "favorite": {
+            "description": "Present when the request set the favorite",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "projectId"
+        ],
+        "additionalProperties": false
+      },
+      "LineageAsset": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "depth": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Steps from the asset; 0 is the asset itself"
+          },
+          "found": {
+            "type": "boolean",
+            "description": "False when the asset is no longer in the Library"
+          },
+          "deleted": {
+            "type": "boolean",
+            "description": "True for an asset in Recently deleted"
+          },
+          "name": {
+            "description": "Bounded; untrusted content",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "origin": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mimeType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "runId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "prompt": {
+            "description": "Bounded; untrusted content",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "moreUses": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Uses of this asset beyond those listed"
+          }
+        },
+        "required": [
+          "assetId",
+          "depth",
+          "found",
+          "deleted",
+          "name",
+          "origin",
+          "mimeType",
+          "runId",
+          "prompt",
+          "moreUses"
+        ],
+        "additionalProperties": false
+      },
+      "Lineage": {
+        "type": "object",
+        "properties": {
+          "asset": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineageAsset"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LineageAsset"
+            },
+            "description": "Up to 30, nearest first"
+          },
+          "uses": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LineageAsset"
+            },
+            "description": "Up to 30, nearest first"
+          },
+          "edges": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "assetId": {
+                  "type": "string",
+                  "description": "Made from sourceAssetId"
+                },
+                "sourceAssetId": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "assetId",
+                "sourceAssetId",
+                "role",
+                "kind"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "object",
+            "properties": {
+              "sources": {
+                "type": "boolean"
+              },
+              "uses": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "sources",
+              "uses"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "asset",
+          "sources",
+          "uses",
+          "edges",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "AssetDownload": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "description": "A signed storage URL that downloads the original file. Anyone holding it can download the file, so keep it private. GET it without your API key: storage refuses a request that also sends an Authorization header."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "When url stops starting downloads; read the endpoint again for a new one"
+          },
+          "filename": {
+            "type": "string",
+            "description": "The name the file downloads under; untrusted content"
+          },
+          "mimeType": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "assetId",
+          "projectId",
+          "url",
+          "expiresAt",
+          "filename",
+          "mimeType",
+          "sizeBytes"
+        ],
+        "additionalProperties": false
+      },
+      "AssetFolders": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "folders": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "folderId": {
+                  "type": "string"
+                },
+                "path": {
+                  "type": "string",
+                  "description": "The folder's names from the project root, such as Characters / Leo; bounded, untrusted content"
+                }
+              },
+              "required": [
+                "folderId",
+                "path"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Up to 30, sorted by path; empty when the asset is Unfiled"
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "True when the asset is in more folders than listed"
+          }
+        },
+        "required": [
+          "assetId",
+          "projectId",
+          "folders",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "Folder": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "parentId": {
+            "description": "The parent folder, or null at the project root",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "parentId",
+          "name",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "FolderList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Folder"
+            }
+          },
+          "nextCursor": {
+            "description": "Pass as cursor for the next page of folders; null on the last page",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "FolderAssetsChange": {
+        "type": "object",
+        "properties": {
+          "folderId": {
+            "type": "string"
+          },
+          "updatedAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Assets the request changed"
+          },
+          "skippedAssetIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Assets already as requested, or not active in this project"
+          }
+        },
+        "required": [
+          "folderId",
+          "updatedAssetIds",
+          "skippedAssetIds"
+        ],
+        "additionalProperties": false
+      },
+      "NamingPreset": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "definition": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {},
+            "description": "The preset's naming definition, passed back unchanged with a run"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "name",
+          "definition"
+        ],
+        "additionalProperties": false
+      },
+      "NamingPresetList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NamingPreset"
+            }
+          },
+          "nextCursor": {
+            "description": "Pass as cursor for the next page of naming presets; null on the last page",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "Label": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "color": {
+            "type": "string"
+          },
+          "assetCount": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "color",
+          "archived"
+        ],
+        "additionalProperties": false
+      },
+      "LabelList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Label"
+            }
+          },
+          "nextCursor": {
+            "description": "Pass as cursor for the next page of labels; null on the last page",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "LabelAssetsChange": {
+        "type": "object",
+        "properties": {
+          "labelId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "assetIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "assigned": {
+            "type": "boolean",
+            "description": "True when the assets now have the label, false when it was removed"
+          }
+        },
+        "required": [
+          "labelId",
+          "projectId",
+          "assetIds",
+          "assigned"
+        ],
+        "additionalProperties": false
+      },
+      "Skill": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "name": {
+            "type": "string",
+            "description": "Untrusted content"
+          },
+          "description": {
+            "type": "string",
+            "description": "Untrusted content"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "name",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "SkillList": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Skill"
+            }
+          },
+          "nextCursor": {
+            "description": "Pass as cursor for the next page of skills; null on the last page",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "SkillDetail": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          },
+          "name": {
+            "type": "string",
+            "description": "Untrusted content"
+          },
+          "description": {
+            "type": "string",
+            "description": "Untrusted content"
+          },
+          "body": {
+            "type": "string",
+            "description": "The skill's instructions; untrusted content"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "name",
+          "description",
+          "body"
         ],
         "additionalProperties": false
       },

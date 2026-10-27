@@ -6,13 +6,15 @@ from ._errors import ZeroGenConnectionError, ZeroGenError
 from ._options import PostRequestOptions, RequestOptions
 from ._pagination import AsyncPage, AsyncPaginator, Page
 from ._version import __version__
-from .resources.generations import has_ended
+from .resources.assets import DownloadDestination
+from .resources.runs import has_ended
 from .resources.uploads import ReadyUpload, UploadSource
 
 __all__ = [
     "AsyncPage",
     "AsyncPaginator",
     "AsyncZeroGen",
+    "DownloadDestination",
     "Page",
     "PostRequestOptions",
     "ReadyUpload",

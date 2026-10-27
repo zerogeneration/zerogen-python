@@ -111,7 +111,7 @@ def api_error(
     return json_response({"error": error}, status, headers)
 
 
-def generation(id: str = "g1", status: str = "queued", **fields: Any) -> dict[str, Any]:
+def run_body(id: str = "g1", status: str = "queued", **fields: Any) -> dict[str, Any]:
     return {
         "id": id,
         "projectId": "p1",
@@ -156,12 +156,59 @@ def upload(id: str = "u1", **fields: Any) -> dict[str, Any]:
     }
 
 
+def asset(id: str = "a1", **fields: Any) -> dict[str, Any]:
+    return {
+        "id": id,
+        "projectId": "p1",
+        "name": "Lighthouse",
+        "type": "image",
+        "origin": "generated",
+        "mimeType": "image/png",
+        "sizeBytes": 5,
+        "width": 1024,
+        "height": 1024,
+        "durationMs": None,
+        "favorite": False,
+        "labels": [],
+        "runId": "g1",
+        "outputIndex": 0,
+        "createdAt": "2026-10-25T00:00:00.000Z",
+        **fields,
+    }
+
+
+def download_link(url: str) -> dict[str, Any]:
+    return {
+        "assetId": "a1",
+        "projectId": "p1",
+        "url": url,
+        "expiresAt": "2026-10-25T00:05:00.000Z",
+        "filename": "lighthouse.png",
+        "mimeType": "image/png",
+        "sizeBytes": 5,
+    }
+
+
+def page(*items: dict[str, Any], next_cursor: str | None = None) -> dict[str, Any]:
+    return {"data": list(items), "nextCursor": next_cursor}
+
+
+FOLDER = {
+    "id": "f1",
+    "projectId": "p1",
+    "parentId": None,
+    "name": "Shots",
+    "createdAt": "2026-10-25T00:00:00.000Z",
+}
+
+LABEL = {"id": "l1", "name": "Hero", "description": None, "color": "#ef4444", "archived": False}
+
 ME = {
     "apiKey": {
         "id": "k1",
         "name": "Test",
         "mode": "test",
-        "scopes": ["generations:create"],
+        "scopes": ["runs:create"],
         "createdAt": "2026-10-25T00:00:00.000Z",
         "expiresAt": None,
     },
