@@ -11,11 +11,11 @@ from fakes import (
     api_error,
     collect,
     first_page,
-    generation,
     json_response,
     model,
     raises,
     run,
+    run_body,
     upload,
 )
 
@@ -31,25 +31,25 @@ TARGET = {
 }
 
 
-def test_create_and_wait_holds_the_create_then_waits_until_the_generation_ends(
+def test_create_and_wait_holds_the_create_then_waits_until_the_run_ends(
     make_client: MakeClient,
 ) -> None:
     zerogen, calls = make_client(
-        json_response(generation(status="running"), 202),
-        json_response(generation(status="running"), 202),
-        json_response(generation(status="succeeded")),
+        json_response(run_body(status="running"), 202),
+        json_response(run_body(status="running"), 202),
+        json_response(run_body(status="succeeded")),
     )
     ended = run(
-        zerogen.generations.create_and_wait(
+        zerogen.runs.create_and_wait(
             {"model": "openai/gpt-image-2/generate", "prompt": "A lighthouse at dawn"},
             idempotency_key="job-1",
         )
     )
     assert ended.status == "succeeded"
     assert [f"{call.method} {call.url} {call.headers['prefer']}" for call in calls] == [
-        "POST https://api.zerogen.com/v1/generations wait=60",
-        "GET https://api.zerogen.com/v1/generations/g1 wait=60",
-        "GET https://api.zerogen.com/v1/generations/g1 wait=60",
+        "POST https://api.zerogen.com/v1/runs wait=60",
+        "GET https://api.zerogen.com/v1/runs/g1 wait=60",
+        "GET https://api.zerogen.com/v1/runs/g1 wait=60",
     ]
     assert calls[0].json() == {
         "model": "openai/gpt-image-2/generate",
@@ -59,15 +59,15 @@ def test_create_and_wait_holds_the_create_then_waits_until_the_generation_ends(
     assert calls[0].timeout["read"] == 180
 
 
-def test_create_and_wait_returns_a_generation_that_ended_within_the_create(
+def test_create_and_wait_returns_a_run_that_ended_within_the_create(
     make_client: MakeClient,
 ) -> None:
-    failed = generation(
+    failed = run_body(
         status="failed",
         error={"code": "provider_error", "message": "The provider failed.", "retryable": True},
     )
     zerogen, calls = make_client(json_response(failed))
-    ended = run(zerogen.generations.create_and_wait({"model": "openai/gpt-image-2/generate"}))
+    ended = run(zerogen.runs.create_and_wait({"model": "openai/gpt-image-2/generate"}))
     assert ended.status == "failed"
     assert ended.error is not None
     assert ended.error.code == "provider_error"
@@ -75,8 +75,8 @@ def test_create_and_wait_returns_a_generation_that_ended_within_the_create(
 
 
 def test_reads_statuses_and_fields_it_doesnt_know_yet(make_client: MakeClient) -> None:
-    zerogen, _ = make_client(json_response(generation(status="paused", priority="high")))
-    later = run(zerogen.generations.get("g1"))
+    zerogen, _ = make_client(json_response(run_body(status="paused", priority="high")))
+    later = run(zerogen.runs.get("g1"))
     assert later.status == "paused"
     assert not has_ended(later)
     assert later.model_extra == {"priority": "high"}
@@ -84,14 +84,14 @@ def test_reads_statuses_and_fields_it_doesnt_know_yet(make_client: MakeClient) -
 
 def test_lists_every_page_with_the_same_filters(make_client: MakeClient) -> None:
     zerogen, calls = make_client(
-        json_response({"data": [generation("g1"), generation("g2")], "nextCursor": "c2"}),
-        json_response({"data": [generation("g3")], "nextCursor": None}),
+        json_response({"data": [run_body("g1"), run_body("g2")], "nextCursor": "c2"}),
+        json_response({"data": [run_body("g3")], "nextCursor": None}),
     )
-    listed = collect(zerogen.generations.list(project_id="p1", limit=2))
+    listed = collect(zerogen.runs.list(project_id="p1", limit=2))
     assert [item.id for item in listed] == ["g1", "g2", "g3"]
     assert [call.url for call in calls] == [
-        "https://api.zerogen.com/v1/generations?projectId=p1&limit=2",
-        "https://api.zerogen.com/v1/generations?projectId=p1&limit=2&cursor=c2",
+        "https://api.zerogen.com/v1/runs?projectId=p1&limit=2",
+        "https://api.zerogen.com/v1/runs?projectId=p1&limit=2&cursor=c2",
     ]
 
 

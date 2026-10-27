@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import os
 import random
 import time
 import uuid
 from collections.abc import AsyncIterable, Callable, Iterable, Mapping
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, TypeVar, cast
 
@@ -18,8 +20,14 @@ from ._errors import ZeroGenConnectionError, ZeroGenError
 from ._options import PostRequestOptions, RequestOptions
 from ._pagination import AsyncPage, AsyncPaginator, Page
 from ._version import __version__
-from .resources.generations import AsyncGenerations, Generations
+from .resources.assets import Assets, AsyncAssets
+from .resources.folders import AsyncFolders, Folders
+from .resources.labels import AsyncLabels, Labels
 from .resources.models import AsyncModels, Models
+from .resources.naming_presets import AsyncNamingPresets, NamingPresets
+from .resources.projects import AsyncProjects, Projects
+from .resources.runs import AsyncRuns, Runs
+from .resources.skills import AsyncSkills, Skills
 from .resources.uploads import AsyncUploads, Uploads
 from .types import Balance, Me
 
@@ -28,8 +36,10 @@ RETRY_AFTER_MAX_SECONDS = 60.0
 
 Result = TypeVar("Result")
 Item = TypeVar("Item")
-Query = Mapping[str, "str | int | bool | None"]
-Method = Literal["GET", "POST"]
+Query = Mapping[str, "str | int | bool | list[str] | None"]
+Method = Literal["GET", "POST", "PATCH", "PUT"]
+
+_sending_to_storage: ContextVar[bool] = ContextVar("zerogen_sending_to_storage", default=False)
 
 
 class ListBody(Protocol[Item]):
@@ -43,7 +53,7 @@ class ListBody(Protocol[Item]):
 @dataclass(frozen=True)
 class _Prepared:
     url: str
-    params: dict[str, str]
+    params: tuple[tuple[str, str], ...]
     headers: httpx.Headers
     content: bytes | None
     timeout: float
@@ -53,8 +63,8 @@ class _Prepared:
 class _BaseClient:
     base_url: str
     timeout: float
-    """Seconds httpx waits on each step of one attempt. A request that waits on a generation
-    gets its wait added."""
+    """Seconds httpx waits on each step of one attempt. A request that waits on a run gets its
+    wait added."""
     max_retries: int
     """How many times to retry a connection error or a retryable response."""
 
@@ -103,11 +113,12 @@ class _BaseClient:
             headers["Prefer"] = f"wait={wait}"
         return _Prepared(
             url=self.base_url + path,
-            params={
-                name: _query_value(value)
+            params=tuple(
+                (name, _query_value(item))
                 for name, value in (query or {}).items()
                 if value is not None
-            },
+                for item in (value if isinstance(value, list) else [value])
+            ),
             headers=headers,
             content=content,
             timeout=options.get("timeout", self.timeout) + (wait or 0),
@@ -118,9 +129,15 @@ class _BaseClient:
 class ZeroGen(_BaseClient):
     """A client for the ZeroGen API."""
 
-    generations: Generations
+    runs: Runs
     models: Models
     uploads: Uploads
+    projects: Projects
+    assets: Assets
+    folders: Folders
+    labels: Labels
+    naming_presets: NamingPresets
+    skills: Skills
 
     def __init__(
         self,
@@ -139,7 +156,7 @@ class ZeroGen(_BaseClient):
             base_url: Defaults to the `ZEROGEN_BASE_URL` environment variable, then
                 `https://api.zerogen.com/v1`.
             timeout: Seconds httpx waits on each step of one attempt of a request. A request
-                that waits on a generation gets its wait added.
+                that waits on a run gets its wait added.
             max_retries: How many times to retry a connection error or a retryable response.
             default_headers: Headers to send with every request.
             http_client: An `httpx.Client` to send requests with. The client doesn't close it.
@@ -153,9 +170,15 @@ class ZeroGen(_BaseClient):
         )
         self._http = http_client if http_client is not None else httpx.Client()
         self._owns_http = http_client is None
-        self.generations = Generations(self)
+        self.runs = Runs(self)
         self.models = Models(self)
         self.uploads = Uploads(self)
+        self.projects = Projects(self)
+        self.assets = Assets(self)
+        self.folders = Folders(self)
+        self.labels = Labels(self)
+        self.naming_presets = NamingPresets(self)
+        self.skills = Skills(self)
 
     def me(self, **options: Unpack[RequestOptions]) -> Me:
         """The API key, the organization it belongs to, and what it can do."""
@@ -197,11 +220,14 @@ class ZeroGen(_BaseClient):
     ) -> Result:
         prepared = self._prepare(method, path, query, body, wait, options)
         response = self._send(
-            method,
-            prepared.url,
-            params=prepared.params,
-            headers=prepared.headers,
-            content=lambda: prepared.content,
+            lambda: self._http.build_request(
+                method,
+                prepared.url,
+                params=prepared.params,
+                headers=prepared.headers,
+                content=prepared.content,
+                timeout=prepared.timeout,
+            ),
             timeout=prepared.timeout,
             max_retries=prepared.max_retries,
         )
@@ -226,25 +252,48 @@ class ZeroGen(_BaseClient):
 
         return load(None)
 
-    def _send(
+    def _storage(
         self,
         method: str,
         url: str,
         *,
-        params: dict[str, str] | None = None,
-        headers: httpx.Headers | Mapping[str, str],
+        headers: Mapping[str, str],
         content: Callable[[], bytes | Iterable[bytes] | None],
         timeout: float | None,
         max_retries: int,
+        stream: bool = False,
     ) -> httpx.Response:
-        """Sends a request, retrying connection errors and retryable responses, and returns the
-        first successful response. A `timeout` of None sends without one."""
+        """Sends a request to a signed storage URL with only `headers`: never the API key, the
+        client's headers, or the `http_client`'s headers, cookies or auth. A `timeout` of None
+        sends without one."""
+        token = _sending_to_storage.set(True)
+        try:
+            return self._send(
+                lambda: _storage_request(method, url, headers, content(), timeout),
+                timeout=timeout,
+                max_retries=max_retries,
+                stream=stream,
+            )
+        finally:
+            _sending_to_storage.reset(token)
+
+    def _send(
+        self,
+        build: Callable[[], httpx.Request],
+        *,
+        timeout: float | None,
+        max_retries: int,
+        stream: bool = False,
+    ) -> httpx.Response:
+        """Sends the request `build` makes for each attempt, retrying connection errors and
+        retryable responses, and returns the first successful response. With `stream`, the
+        caller reads the response's body and closes it."""
         attempt = 0
         while True:
             try:
-                response = self._http.request(
-                    method, url, params=params, headers=headers, content=content(), timeout=timeout
-                )
+                response = self._http.send(build(), stream=stream, auth=None)
+                if not response.is_success:
+                    response.read()
             except httpx.TransportError as error:
                 time.sleep(_connection_retry_delay(error, attempt, max_retries, timeout))
             else:
@@ -257,9 +306,15 @@ class ZeroGen(_BaseClient):
 class AsyncZeroGen(_BaseClient):
     """An asynchronous client for the ZeroGen API."""
 
-    generations: AsyncGenerations
+    runs: AsyncRuns
     models: AsyncModels
     uploads: AsyncUploads
+    projects: AsyncProjects
+    assets: AsyncAssets
+    folders: AsyncFolders
+    labels: AsyncLabels
+    naming_presets: AsyncNamingPresets
+    skills: AsyncSkills
 
     def __init__(
         self,
@@ -278,7 +333,7 @@ class AsyncZeroGen(_BaseClient):
             base_url: Defaults to the `ZEROGEN_BASE_URL` environment variable, then
                 `https://api.zerogen.com/v1`.
             timeout: Seconds httpx waits on each step of one attempt of a request. A request
-                that waits on a generation gets its wait added.
+                that waits on a run gets its wait added.
             max_retries: How many times to retry a connection error or a retryable response.
             default_headers: Headers to send with every request.
             http_client: An `httpx.AsyncClient` to send requests with. The client doesn't
@@ -293,9 +348,15 @@ class AsyncZeroGen(_BaseClient):
         )
         self._http = http_client if http_client is not None else httpx.AsyncClient()
         self._owns_http = http_client is None
-        self.generations = AsyncGenerations(self)
+        self.runs = AsyncRuns(self)
         self.models = AsyncModels(self)
         self.uploads = AsyncUploads(self)
+        self.projects = AsyncProjects(self)
+        self.assets = AsyncAssets(self)
+        self.folders = AsyncFolders(self)
+        self.labels = AsyncLabels(self)
+        self.naming_presets = AsyncNamingPresets(self)
+        self.skills = AsyncSkills(self)
 
     async def me(self, **options: Unpack[RequestOptions]) -> Me:
         """The API key, the organization it belongs to, and what it can do."""
@@ -337,11 +398,14 @@ class AsyncZeroGen(_BaseClient):
     ) -> Result:
         prepared = self._prepare(method, path, query, body, wait, options)
         response = await self._send(
-            method,
-            prepared.url,
-            params=prepared.params,
-            headers=prepared.headers,
-            content=lambda: prepared.content,
+            lambda: self._http.build_request(
+                method,
+                prepared.url,
+                params=prepared.params,
+                headers=prepared.headers,
+                content=prepared.content,
+                timeout=prepared.timeout,
+            ),
             timeout=prepared.timeout,
             max_retries=prepared.max_retries,
         )
@@ -366,25 +430,48 @@ class AsyncZeroGen(_BaseClient):
 
         return AsyncPaginator(load)
 
-    async def _send(
+    async def _storage(
         self,
         method: str,
         url: str,
         *,
-        params: dict[str, str] | None = None,
-        headers: httpx.Headers | Mapping[str, str],
+        headers: Mapping[str, str],
         content: Callable[[], bytes | AsyncIterable[bytes] | None],
         timeout: float | None,
         max_retries: int,
+        stream: bool = False,
     ) -> httpx.Response:
-        """Sends a request, retrying connection errors and retryable responses, and returns the
-        first successful response. A `timeout` of None sends without one."""
+        """Sends a request to a signed storage URL with only `headers`: never the API key, the
+        client's headers, or the `http_client`'s headers, cookies or auth. A `timeout` of None
+        sends without one."""
+        token = _sending_to_storage.set(True)
+        try:
+            return await self._send(
+                lambda: _storage_request(method, url, headers, content(), timeout),
+                timeout=timeout,
+                max_retries=max_retries,
+                stream=stream,
+            )
+        finally:
+            _sending_to_storage.reset(token)
+
+    async def _send(
+        self,
+        build: Callable[[], httpx.Request],
+        *,
+        timeout: float | None,
+        max_retries: int,
+        stream: bool = False,
+    ) -> httpx.Response:
+        """Sends the request `build` makes for each attempt, retrying connection errors and
+        retryable responses, and returns the first successful response. With `stream`, the
+        caller reads the response's body and closes it."""
         attempt = 0
         while True:
             try:
-                response = await self._http.request(
-                    method, url, params=params, headers=headers, content=content(), timeout=timeout
-                )
+                response = await self._http.send(build(), stream=stream, auth=None)
+                if not response.is_success:
+                    await response.aread()
             except httpx.TransportError as error:
                 await anyio.sleep(_connection_retry_delay(error, attempt, max_retries, timeout))
             else:
@@ -396,6 +483,38 @@ class AsyncZeroGen(_BaseClient):
 
 def _env(name: str) -> str | None:
     return os.environ.get(name) or None
+
+
+def _storage_request(
+    method: str,
+    url: str,
+    headers: Mapping[str, str],
+    content: bytes | Iterable[bytes] | AsyncIterable[bytes] | None,
+    timeout: float | None,
+) -> httpx.Request:
+    return httpx.Request(
+        method,
+        url,
+        headers=headers,
+        content=content,
+        extensions={"timeout": httpx.Timeout(timeout).as_dict()},
+    )
+
+
+class _HideSignedQueries(logging.Filter):
+    """Drops the query, which carries the signature, from the URL in httpx's log of a request
+    to storage."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if _sending_to_storage.get() and isinstance(record.args, tuple):
+            record.args = tuple(
+                str(arg).partition("?")[0] if isinstance(arg, httpx.URL) else arg
+                for arg in record.args
+            )
+        return True
+
+
+logging.getLogger("httpx").addFilter(_HideSignedQueries())
 
 
 def _query_value(value: str | int | bool) -> str:

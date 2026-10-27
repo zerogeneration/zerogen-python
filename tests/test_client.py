@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 import pytest
 from conftest import MakeClient
-from fakes import BALANCE, ME, Fake, api_error, generation, json_response, raises, run
+from fakes import BALANCE, ME, Fake, api_error, json_response, raises, run, run_body
 
 from zerogen import AsyncZeroGen, ZeroGen, ZeroGenConnectionError, ZeroGenError, __version__
 from zerogen._client import _backoff, _retry_delay
@@ -53,9 +53,9 @@ def test_sends_get_requests_with_a_query_string_and_no_idempotency_key(
 def test_gives_each_post_an_idempotency_key_and_sends_no_body_when_it_has_none(
     make_client: MakeClient,
 ) -> None:
-    zerogen, calls = make_client(json_response(generation()), json_response(generation()))
-    run(zerogen.generations.cancel("g1"))
-    run(zerogen.generations.cancel("g1", idempotency_key="mine"))
+    zerogen, calls = make_client(json_response(run_body()), json_response(run_body()))
+    run(zerogen.runs.cancel("g1"))
+    run(zerogen.runs.cancel("g1", idempotency_key="mine"))
     assert len(calls[0].headers["idempotency-key"]) == 36
     assert "content-type" not in calls[0].headers
     assert calls[0].body == b""
@@ -74,7 +74,7 @@ def test_sends_its_headers_over_the_callers_but_not_over_the_key(
 def test_raises_the_error_envelope_with_its_request_id(make_client: MakeClient) -> None:
     zerogen, _ = make_client(api_error(400, "validation_failed", param="output.count"))
     error = raises(
-        ZeroGenError, lambda: zerogen.generations.create({"model": "openai/gpt-image-2/generate"})
+        ZeroGenError, lambda: zerogen.runs.create({"model": "openai/gpt-image-2/generate"})
     )
     assert (error.status, error.code, error.param, error.retryable, error.request_id) == (
         400,
@@ -92,9 +92,9 @@ def test_retries_a_retryable_response_after_retry_after_with_the_same_idempotenc
     zerogen, calls = make_client(
         api_error(429, "rate_limited", retryable=True, headers={"Retry-After": "0"}),
         api_error(409, "idempotency_in_progress", retryable=True, headers={"Retry-After": "0"}),
-        json_response(generation(), 202),
+        json_response(run_body(), 202),
     )
-    created = run(zerogen.generations.create({"model": "openai/gpt-image-2/generate"}))
+    created = run(zerogen.runs.create({"model": "openai/gpt-image-2/generate"}))
     assert created.id == "g1"
     assert len(calls) == 3
     assert len({call.headers["idempotency-key"] for call in calls}) == 1
@@ -151,9 +151,9 @@ def test_reports_a_timeout(make_client: MakeClient) -> None:
 
 
 def test_adds_the_wait_to_the_timeout(make_client: MakeClient) -> None:
-    zerogen, calls = make_client(json_response(generation()), json_response(generation()))
-    run(zerogen.generations.get("g1", wait=30))
-    run(zerogen.generations.get("g1", timeout=10))
+    zerogen, calls = make_client(json_response(run_body()), json_response(run_body()))
+    run(zerogen.runs.get("g1", wait=30))
+    run(zerogen.runs.get("g1", timeout=10))
     assert calls[0].headers["prefer"] == "wait=30"
     assert calls[0].timeout["read"] == 150
     assert "prefer" not in calls[1].headers

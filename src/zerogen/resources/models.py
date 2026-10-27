@@ -46,7 +46,7 @@ class Models:
     def list(
         self,
         *,
-        capability: Literal["image", "video"] | None = None,
+        capability: Literal["image", "video", "speech"] | None = None,
         operation: str | None = None,
         q: str | None = None,
         frames: Literal["start", "start-end"] | None = None,
@@ -59,7 +59,7 @@ class Models:
         """Lists the models the organization can run.
 
         Args:
-            capability: Only image or video models.
+            capability: Only image, video or speech models.
             operation: Only models with this operation, the last segment of a model ID, such
                 as `edit` or `text-to-video`.
             q: Searches model IDs and labels, including the maker and related operations.
@@ -89,7 +89,7 @@ class AsyncModels:
     def list(
         self,
         *,
-        capability: Literal["image", "video"] | None = None,
+        capability: Literal["image", "video", "speech"] | None = None,
         operation: str | None = None,
         q: str | None = None,
         frames: Literal["start", "start-end"] | None = None,
@@ -102,7 +102,7 @@ class AsyncModels:
         """Lists the models the organization can run.
 
         Args:
-            capability: Only image or video models.
+            capability: Only image, video or speech models.
             operation: Only models with this operation, the last segment of a model ID, such
                 as `edit` or `text-to-video`.
             q: Searches model IDs and labels, including the maker and related operations.

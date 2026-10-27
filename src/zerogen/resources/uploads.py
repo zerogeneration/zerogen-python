@@ -48,7 +48,7 @@ _CONTENT_TYPES = {
 
 
 class ReadyUpload(Upload):
-    """An upload whose Library asset is ready to use as a generation input."""
+    """An upload whose Library asset is ready to use as a run input."""
 
     status: Literal["ready"]  # pyright: ignore[reportIncompatibleVariableOverride]
     asset_id: str = Field(alias="assetId")  # pyright: ignore[reportIncompatibleVariableOverride]
@@ -175,8 +175,8 @@ class Uploads:
         sha256: str | None = None,
         **options: Unpack[RequestOptions],
     ) -> ReadyUpload:
-        """Uploads a file into the Library and returns it when it's ready to use as a generation
-        input, with its `asset_id`.
+        """Uploads a file into the Library and returns it when it's ready to use as a run input,
+        with its `asset_id`.
 
         Args:
             file: A path, the file's bytes, or a binary file object that can seek.
@@ -202,7 +202,7 @@ class Uploads:
         )
         if upload.status != "ready":
             method, url, headers = _target(upload, source)
-            self._client._send(
+            self._client._storage(
                 method,
                 url,
                 headers=headers,
@@ -247,8 +247,8 @@ class AsyncUploads:
         sha256: str | None = None,
         **options: Unpack[RequestOptions],
     ) -> ReadyUpload:
-        """Uploads a file into the Library and returns it when it's ready to use as a generation
-        input, with its `asset_id`.
+        """Uploads a file into the Library and returns it when it's ready to use as a run input,
+        with its `asset_id`.
 
         Args:
             file: A path, the file's bytes, or a binary file object that can seek.
@@ -275,7 +275,7 @@ class AsyncUploads:
         )
         if upload.status != "ready":
             method, url, headers = _target(upload, source)
-            await self._client._send(
+            await self._client._storage(
                 method,
                 url,
                 headers=headers,

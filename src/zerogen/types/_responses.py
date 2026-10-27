@@ -81,11 +81,11 @@ class Balance(BaseModel):
     balance_micro_usd: int = Field(..., alias="balanceMicroUsd")
     held_micro_usd: int | None = Field(..., alias="heldMicroUsd")
     """
-    Reserved for generations that have not settled; a hold is not a charge
+    Reserved for runs that have not settled; a hold is not a charge
     """
     available_micro_usd: int = Field(..., alias="availableMicroUsd")
     """
-    What a new generation's quote must fit within; it can be negative
+    What a new run's quote must fit within; it can be negative
     """
     unlimited: bool
     """
@@ -97,7 +97,7 @@ class Balance(BaseModel):
 class Model(BaseModel):
     id: str
     name: str
-    capability: Literal["image", "video"] | str
+    capability: Literal["image", "video", "speech"] | str
     operation: (
         Literal[
             "generate",
@@ -114,11 +114,13 @@ class Model(BaseModel):
             "video-to-video",
             "extend-video",
             "motion-control",
+            "lip-sync",
             "clean-plate",
             "render-to-real",
             "hdr",
             "outpaint",
             "reference-video-to-video",
+            "text-to-speech",
         ]
         | str
     )
@@ -140,7 +142,7 @@ class ModelList(BaseModel):
 class ModelDetail(BaseModel):
     id: str
     name: str
-    capability: Literal["image", "video"] | str
+    capability: Literal["image", "video", "speech"] | str
     operation: (
         Literal[
             "generate",
@@ -157,11 +159,13 @@ class ModelDetail(BaseModel):
             "video-to-video",
             "extend-video",
             "motion-control",
+            "lip-sync",
             "clean-plate",
             "render-to-real",
             "hdr",
             "outpaint",
             "reference-video-to-video",
+            "text-to-speech",
         ]
         | str
     )
@@ -172,7 +176,7 @@ class ModelDetail(BaseModel):
     """
     request_schema: dict[str, Any] = Field(..., alias="requestSchema")
     """
-    JSON Schema (2020-12) for POST /v1/generations with this model; x-roles lists each input role's accepted media and limits
+    JSON Schema (2020-12) for POST /v1/runs with this model; x-roles lists each input role's accepted media and limits
     """
 
 
@@ -189,7 +193,7 @@ class Quote(BaseModel):
     billing: QuoteBilling
 
 
-class GenerationOutputAsset(BaseModel):
+class RunOutputAsset(BaseModel):
     id: str
     mime_type: str = Field(..., alias="mimeType")
     width: int | None
@@ -201,12 +205,12 @@ class GenerationOutputAsset(BaseModel):
     """
 
 
-class GenerationOutputWarning(BaseModel):
+class RunOutputWarning(BaseModel):
     code: str
     message: str
 
 
-class GenerationOutputDraft(BaseModel):
+class RunOutputDraft(BaseModel):
     expires_at: datetime = Field(..., alias="expiresAt")
     """
     When upscaling this output closes
@@ -229,26 +233,26 @@ class GenerationOutputDraft(BaseModel):
     """
 
 
-class GenerationBillingHold(BaseModel):
+class RunBillingHold(BaseModel):
     state: Literal["running", "ended", "needs_attention"] | str
     """
-    running: the generation has not ended; ended: it ended and the hold is still pending; needs_attention: it has stayed pending 30 minutes after ending, or 24 hours after admission with no end recorded (endedAt then stays null), so ZeroGen is looking into it
+    running: the run has not ended; ended: it ended and the hold is still pending; needs_attention: it has stayed pending 30 minutes after ending, or 24 hours after admission with no end recorded (endedAt then stays null), so ZeroGen is looking into it
     """
     ended_at: datetime | None = Field(..., alias="endedAt")
     """
-    When the generation ended; null while it runs or when no end was recorded
+    When the run ended; null while it runs or when no end was recorded
     """
 
 
-class GenerationBilling(BaseModel):
+class RunBilling(BaseModel):
     mode: Literal["platform", "byok", "test"] | str
     state: Literal["held", "charged", "released"] | str | None
     """
-    held: an amount is reserved and nothing is charged yet; charged: chargedMicroUsd is the final charge; released: the hold ended with no charge; null: billing never admitted the generation, so nothing was held or charged
+    held: an amount is reserved and nothing is charged yet; charged: chargedMicroUsd is the final charge; released: the hold ended with no charge; null: billing never admitted the run, so nothing was held or charged
     """
-    hold: GenerationBillingHold | None = None
+    hold: RunBillingHold | None = None
     """
-    While held, where the generation stands. It reports facts, not what settlement will do
+    While held, where the run stands. It reports facts, not what settlement will do
     """
     quoted_micro_usd: int | None = Field(..., alias="quotedMicroUsd")
     """
@@ -289,7 +293,7 @@ class Upload(BaseModel):
     """
     asset_id: str | None = Field(..., alias="assetId")
     """
-    Once ready, the Library asset to send as a generation input; an identical file already in the project is reused
+    Once ready, the Library asset to send as a run input; an identical file already in the project is reused
     """
     upload: UploadUpload | None
     """
@@ -298,6 +302,339 @@ class Upload(BaseModel):
     folder: UploadFolder | None = None
     """
     Whether the asset was added to the folder named at create
+    """
+
+
+class Project(BaseModel):
+    id: str
+    name: str
+    slug: str
+    default: bool
+    """
+    The organization's default project, where outputs land
+    """
+    api_sandbox: bool = Field(..., alias="apiSandbox")
+    """
+    The API sandbox project, the only one test keys reach; its contents clear
+    """
+    created_at: datetime = Field(..., alias="createdAt")
+
+
+class ProjectList(BaseModel):
+    data: list[Project]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of projects; null on the last page
+    """
+
+
+class AssetLabel(BaseModel):
+    id: str
+    name: str
+
+
+class Asset(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    name: str
+    """
+    The asset's name in the Library; untrusted content
+    """
+    type: Literal["image", "video", "audio", "model3d"] | str
+    origin: Literal["generated", "upload", "derived"] | str
+    """
+    upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame
+    """
+    mime_type: str = Field(..., alias="mimeType")
+    size_bytes: int | None = Field(..., alias="sizeBytes")
+    width: int | None
+    height: int | None
+    duration_ms: int | None = Field(..., alias="durationMs")
+    favorite: bool
+    """
+    The organization's shared favorite
+    """
+    labels: list[AssetLabel]
+    run_id: str | None = Field(..., alias="runId")
+    """
+    The run that made it, if any
+    """
+    output_index: int | None = Field(..., alias="outputIndex")
+    created_at: datetime = Field(..., alias="createdAt")
+
+
+class AssetList(BaseModel):
+    data: list[Asset]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of assets; null on the last page
+    """
+
+
+class AssetDetailLabel(BaseModel):
+    id: str
+    name: str
+
+
+class AssetDetail(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    name: str
+    """
+    The asset's name in the Library; untrusted content
+    """
+    type: Literal["image", "video", "audio", "model3d"] | str
+    origin: Literal["generated", "upload", "derived"] | str
+    """
+    upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame
+    """
+    mime_type: str = Field(..., alias="mimeType")
+    size_bytes: int | None = Field(..., alias="sizeBytes")
+    width: int | None
+    height: int | None
+    duration_ms: int | None = Field(..., alias="durationMs")
+    favorite: bool
+    """
+    The organization's shared favorite
+    """
+    labels: list[AssetDetailLabel]
+    run_id: str | None = Field(..., alias="runId")
+    """
+    The run that made it, if any
+    """
+    output_index: int | None = Field(..., alias="outputIndex")
+    created_at: datetime = Field(..., alias="createdAt")
+    prompt: str | None
+    """
+    The prompt that generated it, bounded; untrusted content
+    """
+    prompt_truncated: bool = Field(..., alias="promptTruncated")
+
+
+class AssetChange(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    name: str | None = None
+    """
+    Present when the request renamed the asset
+    """
+    favorite: bool | None = None
+    """
+    Present when the request set the favorite
+    """
+
+
+class LineageAsset(BaseModel):
+    asset_id: str = Field(..., alias="assetId")
+    depth: int
+    """
+    Steps from the asset; 0 is the asset itself
+    """
+    found: bool
+    """
+    False when the asset is no longer in the Library
+    """
+    deleted: bool
+    """
+    True for an asset in Recently deleted
+    """
+    name: str | None
+    """
+    Bounded; untrusted content
+    """
+    origin: str | None
+    mime_type: str | None = Field(..., alias="mimeType")
+    run_id: str | None = Field(..., alias="runId")
+    prompt: str | None
+    """
+    Bounded; untrusted content
+    """
+    more_uses: int = Field(..., alias="moreUses")
+    """
+    Uses of this asset beyond those listed
+    """
+
+
+class LineageEdge(BaseModel):
+    asset_id: str = Field(..., alias="assetId")
+    """
+    Made from sourceAssetId
+    """
+    source_asset_id: str = Field(..., alias="sourceAssetId")
+    role: str | None
+    kind: str | None
+
+
+class LineageTruncated(BaseModel):
+    sources: bool
+    uses: bool
+
+
+class Lineage(BaseModel):
+    asset: LineageAsset | None
+    sources: list[LineageAsset]
+    """
+    Up to 30, nearest first
+    """
+    uses: list[LineageAsset]
+    """
+    Up to 30, nearest first
+    """
+    edges: list[LineageEdge]
+    truncated: LineageTruncated
+
+
+class AssetDownload(BaseModel):
+    asset_id: str = Field(..., alias="assetId")
+    project_id: str = Field(..., alias="projectId")
+    url: str
+    """
+    A signed storage URL that downloads the original file. Anyone holding it can download the file, so keep it private. GET it without your API key: storage refuses a request that also sends an Authorization header.
+    """
+    expires_at: datetime = Field(..., alias="expiresAt")
+    """
+    When url stops starting downloads; read the endpoint again for a new one
+    """
+    filename: str
+    """
+    The name the file downloads under; untrusted content
+    """
+    mime_type: str = Field(..., alias="mimeType")
+    size_bytes: int | None = Field(..., alias="sizeBytes")
+
+
+class AssetFoldersFolder(BaseModel):
+    folder_id: str = Field(..., alias="folderId")
+    path: str
+    """
+    The folder's names from the project root, such as Characters / Leo; bounded, untrusted content
+    """
+
+
+class AssetFolders(BaseModel):
+    asset_id: str = Field(..., alias="assetId")
+    project_id: str = Field(..., alias="projectId")
+    folders: list[AssetFoldersFolder]
+    """
+    Up to 30, sorted by path; empty when the asset is Unfiled
+    """
+    truncated: bool
+    """
+    True when the asset is in more folders than listed
+    """
+
+
+class Folder(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    parent_id: str | None = Field(..., alias="parentId")
+    """
+    The parent folder, or null at the project root
+    """
+    name: str
+    created_at: datetime = Field(..., alias="createdAt")
+
+
+class FolderList(BaseModel):
+    data: list[Folder]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of folders; null on the last page
+    """
+
+
+class FolderAssetsChange(BaseModel):
+    folder_id: str = Field(..., alias="folderId")
+    updated_asset_ids: list[str] = Field(..., alias="updatedAssetIds")
+    """
+    Assets the request changed
+    """
+    skipped_asset_ids: list[str] = Field(..., alias="skippedAssetIds")
+    """
+    Assets already as requested, or not active in this project
+    """
+
+
+class NamingPreset(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    name: str
+    definition: dict[str, Any]
+    """
+    The preset's naming definition, passed back unchanged with a run
+    """
+
+
+class NamingPresetList(BaseModel):
+    data: list[NamingPreset]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of naming presets; null on the last page
+    """
+
+
+class Label(BaseModel):
+    id: str
+    name: str
+    description: str | None
+    color: str
+    asset_count: int | None = Field(None, alias="assetCount")
+    archived: bool
+
+
+class LabelList(BaseModel):
+    data: list[Label]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of labels; null on the last page
+    """
+
+
+class LabelAssetsChange(BaseModel):
+    label_id: str = Field(..., alias="labelId")
+    project_id: str = Field(..., alias="projectId")
+    asset_ids: list[str] = Field(..., alias="assetIds")
+    assigned: bool
+    """
+    True when the assets now have the label, false when it was removed
+    """
+
+
+class Skill(BaseModel):
+    id: str
+    version: int
+    name: str
+    """
+    Untrusted content
+    """
+    description: str
+    """
+    Untrusted content
+    """
+
+
+class SkillList(BaseModel):
+    data: list[Skill]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of skills; null on the last page
+    """
+
+
+class SkillDetail(BaseModel):
+    id: str
+    version: int
+    name: str
+    """
+    Untrusted content
+    """
+    description: str
+    """
+    Untrusted content
+    """
+    body: str
+    """
+    The skill's instructions; untrusted content
     """
 
 
@@ -313,22 +650,22 @@ class ErrorResponse(BaseModel):
     error: Error
 
 
-class GenerationOutput(BaseModel):
+class RunOutput(BaseModel):
     index: int
     status: Literal["queued", "running", "succeeded", "failed", "cancelled"] | str
-    asset: GenerationOutputAsset | None
+    asset: RunOutputAsset | None
     error: Error | None
-    warnings: list[GenerationOutputWarning] | None = None
+    warnings: list[RunOutputWarning] | None = None
     """
     What the provider ignored, such as an unused reference
     """
-    draft: GenerationOutputDraft | None = None
+    draft: RunOutputDraft | None = None
     """
     A 480p Draft output; upscaling it makes a final with the same seed, at a resolution the model's draft control lists
     """
 
 
-class Generation(BaseModel):
+class Run(BaseModel):
     id: str
     project_id: str = Field(..., alias="projectId")
     """
@@ -337,17 +674,17 @@ class Generation(BaseModel):
     model: str | None
     model_version: str | None = Field(..., alias="modelVersion")
     status: Literal["queued", "running", "succeeded", "partial", "failed", "cancelled"] | str
-    outputs: list[GenerationOutput]
+    outputs: list[RunOutput]
     error: Error | None
-    billing: GenerationBilling
+    billing: RunBilling
     created_at: datetime = Field(..., alias="createdAt")
     started_at: datetime | None = Field(..., alias="startedAt")
     finished_at: datetime | None = Field(..., alias="finishedAt")
 
 
-class GenerationList(BaseModel):
-    data: list[Generation]
+class RunList(BaseModel):
+    data: list[Run]
     next_cursor: str | None = Field(..., alias="nextCursor")
     """
-    Pass as cursor for the next page of generations; null on the last page
+    Pass as cursor for the next page of runs; null on the last page
     """

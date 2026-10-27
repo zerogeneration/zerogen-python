@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, TypeAlias
 from typing_extensions import NotRequired, TypedDict
 
 
-class CreateGenerationRequestInputs(TypedDict, closed=True):
+class CreateRunRequestInputs(TypedDict, closed=True):
     role: Literal[
         "source", "reference", "face-reference", "start-frame", "end-frame", "keyframe", "mask"
     ]
@@ -20,7 +20,7 @@ class CreateGenerationRequestInputs(TypedDict, closed=True):
     """
 
 
-class CreateGenerationRequestInputs1(TypedDict, closed=True):
+class CreateRunRequestInputs1(TypedDict, closed=True):
     role: Literal[
         "source", "reference", "face-reference", "start-frame", "end-frame", "keyframe", "mask"
     ]
@@ -34,7 +34,7 @@ class CreateGenerationRequestInputs1(TypedDict, closed=True):
     """
 
 
-class CreateGenerationRequestOutput(TypedDict, closed=True):
+class CreateRunRequestOutput(TypedDict, closed=True):
     count: NotRequired[int]
     size: NotRequired[str]
     """
@@ -49,7 +49,7 @@ class CreateGenerationRequestOutput(TypedDict, closed=True):
     includeAudio: NotRequired[bool]
 
 
-class CreateGenerationRequestTest(TypedDict, closed=True):
+class CreateRunRequestTest(TypedDict, closed=True):
     outputs: NotRequired[
         list[
             Literal[
@@ -74,10 +74,10 @@ class CreateGenerationRequestTest(TypedDict, closed=True):
     """
 
 
-class CreateGenerationRequestNaming(TypedDict, closed=True):
+class CreateRunRequestNaming(TypedDict, closed=True):
     presetId: str
     """
-    A naming preset in the generation's project
+    A naming preset in the run's project
     """
     values: dict[str, str | int]
     """
@@ -85,11 +85,15 @@ class CreateGenerationRequestNaming(TypedDict, closed=True):
     """
 
 
-class CreateGenerationRequest(TypedDict, closed=True):
+class CreateRunRequest(TypedDict, closed=True):
     model: str
     prompt: NotRequired[str]
-    inputs: NotRequired[list[CreateGenerationRequestInputs | CreateGenerationRequestInputs1]]
-    output: NotRequired[CreateGenerationRequestOutput]
+    inputs: NotRequired[list[CreateRunRequestInputs | CreateRunRequestInputs1]]
+    output: NotRequired[CreateRunRequestOutput]
+    voice: NotRequired[str]
+    """
+    Speech models only: the voice to read the prompt in, from the model's voices
+    """
     parameters: NotRequired[dict[str, str | float | bool]]
     """
     Only the parameters the model's schema lists
@@ -98,7 +102,7 @@ class CreateGenerationRequest(TypedDict, closed=True):
     """
     Refuse to start when the quote exceeds this amount
     """
-    test: NotRequired[CreateGenerationRequestTest]
+    test: NotRequired[CreateRunRequestTest]
     """
     Test keys only: rehearse each output's outcome; live keys are refused when it is present
     """
@@ -110,7 +114,7 @@ class CreateGenerationRequest(TypedDict, closed=True):
     """
     A folder in that project to file the outputs in; null or omitted for Unfiled
     """
-    naming: NotRequired[CreateGenerationRequestNaming]
+    naming: NotRequired[CreateRunRequestNaming]
 
 
 class CreateUploadRequest(TypedDict, closed=True):
@@ -148,4 +152,108 @@ class CreateUploadRequest(TypedDict, closed=True):
     sha256: NotRequired[str]
     """
     Lowercase hex SHA-256 of the file, to reuse an identical file in the project.
+    """
+
+
+class UpdateAssetRequest(TypedDict, closed=True):
+    name: NotRequired[str]
+    favorite: NotRequired[bool]
+    """
+    The organization's shared favorite
+    """
+
+
+class CreateFolderRequest(TypedDict, closed=True):
+    name: str
+    parentId: NotRequired[str | None]
+    """
+    The parent folder; omit or null for the project root
+    """
+
+
+class UpdateFolderRequest(TypedDict, closed=True):
+    name: NotRequired[str]
+    parentId: NotRequired[str | None]
+    """
+    The new parent folder, or null to move it to the project root
+    """
+
+
+FolderAssetsRequestAssetId: TypeAlias = str
+
+
+class FolderAssetsRequest(TypedDict, closed=True):
+    assetIds: list[FolderAssetsRequestAssetId]
+    """
+    Up to 100 assets
+    """
+
+
+MoveAssetsRequestAssetId: TypeAlias = str
+
+
+class MoveAssetsRequest(TypedDict, closed=True):
+    assetIds: list[MoveAssetsRequestAssetId]
+    """
+    Up to 100 assets
+    """
+    fromFolderId: str
+    """
+    The folder to take the assets out of; their other folders keep them
+    """
+
+
+class CreateLabelRequest(TypedDict, closed=True):
+    name: str
+    description: NotRequired[str]
+    color: NotRequired[
+        Literal[
+            "#ef4444",
+            "#f97316",
+            "#f59e0b",
+            "#eab308",
+            "#84cc16",
+            "#22c55e",
+            "#14b8a6",
+            "#06b6d4",
+            "#3b82f6",
+            "#6366f1",
+            "#8b5cf6",
+            "#ec4899",
+        ]
+    ]
+    """
+    One of the preset colors: Red #ef4444, Orange #f97316, Amber #f59e0b, Yellow #eab308, Lime #84cc16, Green #22c55e, Teal #14b8a6, Cyan #06b6d4, Blue #3b82f6, Indigo #6366f1, Violet #8b5cf6, Pink #ec4899.
+    """
+
+
+class UpdateLabelRequest(TypedDict, closed=True):
+    name: str
+    description: str
+    color: Literal[
+        "#ef4444",
+        "#f97316",
+        "#f59e0b",
+        "#eab308",
+        "#84cc16",
+        "#22c55e",
+        "#14b8a6",
+        "#06b6d4",
+        "#3b82f6",
+        "#6366f1",
+        "#8b5cf6",
+        "#ec4899",
+    ]
+    """
+    One of the preset colors: Red #ef4444, Orange #f97316, Amber #f59e0b, Yellow #eab308, Lime #84cc16, Green #22c55e, Teal #14b8a6, Cyan #06b6d4, Blue #3b82f6, Indigo #6366f1, Violet #8b5cf6, Pink #ec4899.
+    """
+
+
+LabelAssetsRequestAssetId: TypeAlias = str
+
+
+class LabelAssetsRequest(TypedDict, closed=True):
+    assetIds: list[LabelAssetsRequestAssetId]
+    """
+    Up to 50 assets
     """
