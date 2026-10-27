@@ -296,7 +296,10 @@ class ZeroGen(_BaseClient):
                     build(), stream=stream, auth=None, follow_redirects=False
                 )
                 if not response.is_success:
-                    response.read()
+                    try:
+                        response.read()
+                    finally:
+                        response.close()
             except httpx.TransportError as error:
                 time.sleep(_connection_retry_delay(error, attempt, max_retries, timeout))
             else:
@@ -477,7 +480,10 @@ class AsyncZeroGen(_BaseClient):
                     build(), stream=stream, auth=None, follow_redirects=False
                 )
                 if not response.is_success:
-                    await response.aread()
+                    try:
+                        await response.aread()
+                    finally:
+                        await response.aclose()
             except httpx.TransportError as error:
                 await anyio.sleep(_connection_retry_delay(error, attempt, max_retries, timeout))
             else:
