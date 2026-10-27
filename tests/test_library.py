@@ -200,7 +200,7 @@ def test_downloads_from_storage_without_the_api_key_or_any_of_the_clients_header
         json_response(download_link(SIGNED)),
         httpx.Response(200, content=HELLO),
         default_headers={"X-Team": "t1"},
-        http_headers={"X-Proxy-Tag": "p1"},
+        http_options={"headers": {"X-Proxy-Tag": "p1"}},
     )
     assert run(zerogen.assets.download("a1", headers={"X-Trace": "r1"})) == HELLO
     api, storage = calls
@@ -210,6 +210,18 @@ def test_downloads_from_storage_without_the_api_key_or_any_of_the_clients_header
     assert (storage.method, storage.url) == ("GET", SIGNED)
     assert dict(storage.headers) == {"host": "storage.example.com"}
     assert storage.timeout["read"] == 120
+
+
+def test_doesnt_follow_a_storage_redirect_with_the_clients_cookies(make_client: MakeClient) -> None:
+    zerogen, calls = make_client(
+        json_response(download_link(SIGNED)),
+        httpx.Response(302, headers={"Location": "https://elsewhere.example.com/a1.png"}),
+        http_options={"follow_redirects": True, "cookies": {"session": "s1"}},
+    )
+    error = raises(ZeroGenError, lambda: zerogen.assets.download("a1"))
+    assert error.status == 302
+    assert [call.url for call in calls] == [f"{API}/assets/a1/download", SIGNED]
+    assert "cookie" not in calls[1].headers
 
 
 def test_streams_each_download_into_a_path_or_a_file_from_a_new_link(

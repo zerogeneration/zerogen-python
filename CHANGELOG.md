@@ -22,6 +22,8 @@ This release breaks compatibility with 0.1.0.
 - Requests to storage, for uploads too, now carry only the headers storage
   needs, and none of the `http_client`'s headers, cookies or auth. httpx's
   request log leaves out their signed query.
+- The client no longer follows redirects, even with an `http_client` that does.
+  A redirect raises a `ZeroGenError` with its status.
 
 ## 0.1.0
 
