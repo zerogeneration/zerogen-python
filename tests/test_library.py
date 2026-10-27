@@ -4,8 +4,9 @@ import io
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
+import anyio
 import httpx
 import pytest
 from conftest import MakeClient
@@ -23,6 +24,7 @@ from fakes import (
 )
 
 from zerogen import ZeroGenConnectionError, ZeroGenError
+from zerogen.resources import assets as assets_module
 
 API = "https://api.zerogen.com/v1"
 SIGNED = "https://storage.example.com/a1.png?X-Amz-Expires=300&X-Amz-Signature=first"
@@ -282,6 +284,26 @@ def test_removes_a_partial_file_when_the_download_stops(
     error = raises(ZeroGenConnectionError, lambda: zerogen.assets.download("a1", path))
     assert str(error) == "The download stopped before it finished."
     assert not path.exists()
+
+
+def test_keeps_an_existing_file_it_cant_open(
+    make_client: MakeClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(*args: object, **kwargs: object) -> NoReturn:
+        raise PermissionError("The file is read-only.")
+
+    async def refuse_async(*args: object, **kwargs: object) -> NoReturn:
+        refuse()
+
+    monkeypatch.setattr(assets_module, "open", refuse, raising=False)
+    monkeypatch.setattr(anyio, "open_file", refuse_async)
+    zerogen, _ = make_client(
+        json_response(download_link(SIGNED)), httpx.Response(200, content=HELLO)
+    )
+    path = tmp_path / "lighthouse.png"
+    path.write_bytes(b"original")
+    raises(PermissionError, lambda: zerogen.assets.download("a1", path))
+    assert path.read_bytes() == b"original"
 
 
 def test_keeps_the_signature_out_of_httpxs_request_log(

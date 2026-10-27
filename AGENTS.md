@@ -13,6 +13,10 @@ uploads and downloads on top of the types generated from it.
   update the methods in `src/zerogen/resources` to match. To build against a
   document that isn't published yet, put it in `openapi.json` and run
   `uv run scripts/generate.py`.
+- The generator makes only the types; the methods are hand-written.
+  `tests/test_spec.py` checks every method against `openapi.json` (method,
+  path, query parameters, `Prefer: wait`, body and response types, `Literal`
+  values) and fails until each operation has a method that matches it.
 - Request bodies are TypedDicts with the API's own field names, sent as
   given. Responses are pydantic models that leave out the document's
   constraints and accept enum values and fields they don't know yet, so an

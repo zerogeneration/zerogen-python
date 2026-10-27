@@ -79,14 +79,15 @@ def _write(chunks: Iterator[bytes], destination: DownloadDestination | None) -> 
         return b"".join(chunks)
     if isinstance(destination, (str, os.PathLike)):
         path = os.fspath(destination)
-        try:
-            with open(path, "wb") as file:
+        with open(path, "wb") as file:
+            try:
                 for chunk in chunks:
                     file.write(chunk)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.remove(path)
-            raise
+            except BaseException:
+                file.close()
+                with contextlib.suppress(OSError):
+                    os.remove(path)
+                raise
         return None
     for chunk in chunks:
         destination.write(chunk)
@@ -100,14 +101,15 @@ async def _async_write(
         return b"".join([chunk async for chunk in chunks])
     if isinstance(destination, (str, os.PathLike)):
         path = os.fspath(destination)
-        try:
-            async with await anyio.open_file(path, "wb") as file:
+        async with await anyio.open_file(path, "wb") as file:
+            try:
                 async for chunk in chunks:
                     await file.write(chunk)
-        except BaseException:
-            with contextlib.suppress(OSError):
-                os.remove(path)
-            raise
+            except BaseException:
+                file.wrapped.close()
+                with contextlib.suppress(OSError):
+                    os.remove(path)
+                raise
         return None
     file = anyio.wrap_file(destination)
     async for chunk in chunks:
