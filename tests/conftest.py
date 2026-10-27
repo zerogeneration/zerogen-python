@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 import pytest
@@ -15,7 +15,7 @@ class MakeClient(Protocol):
         *replies: Reply,
         max_retries: int = 2,
         default_headers: dict[str, str] | None = None,
-        http_headers: dict[str, str] | None = None,
+        http_options: dict[str, Any] | None = None,
     ) -> tuple[Client, list[Call]]: ...
 
 
@@ -27,7 +27,7 @@ def make_client(request: pytest.FixtureRequest) -> MakeClient:
         *replies: Reply,
         max_retries: int = 2,
         default_headers: dict[str, str] | None = None,
-        http_headers: dict[str, str] | None = None,
+        http_options: dict[str, Any] | None = None,
     ) -> tuple[Client, list[Call]]:
         fake = Fake(replies)
         transport = httpx.MockTransport(fake.handle)
@@ -36,14 +36,14 @@ def make_client(request: pytest.FixtureRequest) -> MakeClient:
                 api_key="zg_test_key",
                 max_retries=max_retries,
                 default_headers=default_headers,
-                http_client=httpx.Client(transport=transport, headers=http_headers),
+                http_client=httpx.Client(transport=transport, **(http_options or {})),
             )
         else:
             client = AsyncZeroGen(
                 api_key="zg_test_key",
                 max_retries=max_retries,
                 default_headers=default_headers,
-                http_client=httpx.AsyncClient(transport=transport, headers=http_headers),
+                http_client=httpx.AsyncClient(transport=transport, **(http_options or {})),
             )
         return client, fake.calls
 

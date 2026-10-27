@@ -286,12 +286,15 @@ class ZeroGen(_BaseClient):
         stream: bool = False,
     ) -> httpx.Response:
         """Sends the request `build` makes for each attempt, retrying connection errors and
-        retryable responses, and returns the first successful response. With `stream`, the
+        retryable responses, and returns the first successful response. It never follows a
+        redirect, which httpx would send with the `http_client`'s cookies. With `stream`, the
         caller reads the response's body and closes it."""
         attempt = 0
         while True:
             try:
-                response = self._http.send(build(), stream=stream, auth=None)
+                response = self._http.send(
+                    build(), stream=stream, auth=None, follow_redirects=False
+                )
                 if not response.is_success:
                     response.read()
             except httpx.TransportError as error:
@@ -464,12 +467,15 @@ class AsyncZeroGen(_BaseClient):
         stream: bool = False,
     ) -> httpx.Response:
         """Sends the request `build` makes for each attempt, retrying connection errors and
-        retryable responses, and returns the first successful response. With `stream`, the
+        retryable responses, and returns the first successful response. It never follows a
+        redirect, which httpx would send with the `http_client`'s cookies. With `stream`, the
         caller reads the response's body and closes it."""
         attempt = 0
         while True:
             try:
-                response = await self._http.send(build(), stream=stream, auth=None)
+                response = await self._http.send(
+                    build(), stream=stream, auth=None, follow_redirects=False
+                )
                 if not response.is_success:
                     await response.aread()
             except httpx.TransportError as error:

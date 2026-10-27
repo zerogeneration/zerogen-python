@@ -27,8 +27,8 @@ uploads and downloads on top of the types generated from it.
   Retries follow the error's `retryable` and `Retry-After`; keep it that way.
 - Signed storage URLs, for uploads and downloads, go through the client's
   `_storage` method, which sends only the headers storage needs (never the API
-  key or any caller or client headers) and keeps the URL's signed query out of
-  httpx's request log. A signed URL is a credential, so never put one in an
+  key or any caller or client headers), follows no redirect, and keeps the
+  URL's signed query out of httpx's request log. A signed URL is a credential, so never put one in an
   error message or a log.
 - Tests use a scripted httpx transport (`tests/fakes.py`) and never call the
   API.
