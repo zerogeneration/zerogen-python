@@ -34,6 +34,12 @@ uploads and downloads on top of the types generated from it.
   API.
 - The library supports Python 3.10 and later. Before you commit, run
   `uv run scripts/check.py` (Ruff's linter and formatter, pyright, pytest).
+- The `CI` workflow runs on every pull request and push to `main`. It runs
+  `scripts/check.py` and `uv build` on Python 3.10 and 3.14, and the tests on
+  Python 3.10 with the lowest dependency versions `pyproject.toml` allows
+  (`--resolution lowest-direct`). That run disables pytest's typeguard plugin,
+  which `datamodel-code-generator` brings in through `inflect` and which fails
+  to load beside the lowest `typing-extensions`.
 
 ## Releases
 
