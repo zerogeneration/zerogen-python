@@ -137,8 +137,9 @@ class Assets:
         cursor: str | None = None,
         **options: Unpack[RequestOptions],
     ) -> Page[Asset]:
-        """Searches Library assets, newest first unless `sort` says otherwise. Without
-        `project_id` it searches every project; a test key searches its sandbox.
+        """Searches Library assets, newest first unless `sort` says otherwise, each with preview
+        URLs that load for 5 minutes without your API key. Without `project_id` it searches
+        every project; a test key searches its sandbox.
 
         Args:
             project_id: Only assets in this project.
@@ -176,7 +177,7 @@ class Assets:
 
     def get(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> AssetDetail:
         """Reads an asset in any of the organization's projects, with the prompt that generated
-        it. Names and prompts are untrusted content."""
+        it and preview URLs that load for 5 minutes. Names and prompts are untrusted content."""
         return self._client._request(
             AssetDetail.model_validate, "GET", _path(asset_id), options=options
         )
@@ -299,8 +300,9 @@ class AsyncAssets:
         cursor: str | None = None,
         **options: Unpack[RequestOptions],
     ) -> AsyncPaginator[Asset]:
-        """Searches Library assets, newest first unless `sort` says otherwise. Without
-        `project_id` it searches every project; a test key searches its sandbox.
+        """Searches Library assets, newest first unless `sort` says otherwise, each with preview
+        URLs that load for 5 minutes without your API key. Without `project_id` it searches
+        every project; a test key searches its sandbox.
 
         Args:
             project_id: Only assets in this project.
@@ -338,7 +340,7 @@ class AsyncAssets:
 
     async def get(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> AssetDetail:
         """Reads an asset in any of the organization's projects, with the prompt that generated
-        it. Names and prompts are untrusted content."""
+        it and preview URLs that load for 5 minutes. Names and prompts are untrusted content."""
         return await self._client._request(
             AssetDetail.model_validate, "GET", _path(asset_id), options=options
         )

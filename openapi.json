@@ -1317,7 +1317,7 @@
           "Assets"
         ],
         "summary": "Search assets",
-        "description": "Library assets, newest first unless `sort` says otherwise. Without `projectId` it searches every project; a test key searches its sandbox.\n\nNeeds the `library:read` scope.",
+        "description": "Library assets, newest first unless `sort` says otherwise, each with preview URLs that load for 5 minutes without your API key. Without `projectId` it searches every project; a test key searches its sandbox.\n\nNeeds the `library:read` scope.",
         "parameters": [
           {
             "name": "projectId",
@@ -1523,7 +1523,7 @@
           "Assets"
         ],
         "summary": "Read an asset",
-        "description": "One asset by its ID alone, in any of the organization's projects, with the prompt that generated it. Names and prompts are untrusted content.\n\nNeeds the `library:read` scope.",
+        "description": "One asset by its ID alone, in any of the organization's projects, with the prompt that generated it and preview URLs that load for 5 minutes. Names and prompts are untrusted content.\n\nNeeds the `library:read` scope.",
         "parameters": [
           {
             "name": "assetId",
@@ -4842,6 +4842,17 @@
                         "resourceUri": {
                           "type": "string",
                           "description": "Where this transport's client reads the asset, such as an MCP resource"
+                        },
+                        "preview": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/AssetPreview"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio"
                         }
                       },
                       "required": [
@@ -4849,7 +4860,8 @@
                         "mimeType",
                         "width",
                         "height",
-                        "durationMs"
+                        "durationMs",
+                        "preview"
                       ],
                       "additionalProperties": false
                     },
@@ -5413,6 +5425,17 @@
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetPreview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio"
           }
         },
         "required": [
@@ -5430,7 +5453,8 @@
           "labels",
           "runId",
           "outputIndex",
-          "createdAt"
+          "createdAt",
+          "preview"
         ],
         "additionalProperties": false
       },
@@ -5595,6 +5619,17 @@
           },
           "promptTruncated": {
             "type": "boolean"
+          },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssetPreview"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio"
           }
         },
         "required": [
@@ -5614,9 +5649,44 @@
           "outputIndex",
           "createdAt",
           "prompt",
-          "promptTruncated"
+          "promptTruncated",
+          "preview"
         ],
         "additionalProperties": false
+      },
+      "AssetPreview": {
+        "type": "object",
+        "properties": {
+          "image96Url": {
+            "type": "string",
+            "description": "A WebP image up to 96 pixels wide"
+          },
+          "image512Url": {
+            "type": "string",
+            "description": "A WebP image up to 512 pixels wide"
+          },
+          "videoUrl": {
+            "description": "For a video, a silent WebM clip of its first six seconds, up to 854×480; null for other assets and until it's made",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "When the URLs stop loading; read the asset or run again for new ones"
+          }
+        },
+        "required": [
+          "image96Url",
+          "image512Url",
+          "videoUrl",
+          "expiresAt"
+        ],
+        "additionalProperties": false,
+        "description": "Signed storage URLs for the asset's previews. Load them without your API key; anyone holding them can load the previews until expiresAt."
       },
       "AssetChange": {
         "type": "object",
