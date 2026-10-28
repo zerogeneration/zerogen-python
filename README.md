@@ -125,6 +125,37 @@ To hand the link to something else, read it with `assets.get_download`: it's
 valid for 5 minutes, and anyone holding it can download the file, so keep it
 private.
 
+## Previews
+
+To show assets without downloading their originals, use their `preview`. Each
+asset from `assets.search` and `assets.get` has one, and so does each run
+output's `asset`.
+
+```python
+page = zerogen.assets.search(project_id=project.id, limit=50)
+tiles = [
+    {
+        "id": asset.id,
+        "image": asset.preview.image512_url if asset.preview else None,
+        "clip": asset.preview.video_url if asset.preview else None,
+    }
+    for asset in page.data
+]
+```
+
+`image96_url` and `image512_url` are WebP images up to 96 and 512 pixels wide.
+`video_url` is a silent WebM clip of a video's first six seconds; it's `None`
+for other assets and until the clip is made. `preview` itself is `None` until
+the images are made, which can take up to about 15 minutes after a run, and for
+assets with none, such as audio.
+
+The URLs are signed storage URLs, so load them without your API key: a browser
+can load one as an `<img>` element's `src`. They work until `expires_at`, 5
+minutes later, and anyone holding them can load the previews until then, so
+keep them out of logs. After `expires_at`, read the page again for new ones:
+one `assets.search` call refreshes every tile on it, where `assets.get` would
+take a request for each. For a single asset or a run, read it again.
+
 ## Lists
 
 List methods return one page, and iterating the page reads every item on every

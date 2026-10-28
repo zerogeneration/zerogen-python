@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -13,9 +14,11 @@ from fakes import (
     first_page,
     json_response,
     model,
+    preview,
     raises,
     run,
     run_body,
+    run_output,
     upload,
 )
 
@@ -80,6 +83,25 @@ def test_reads_statuses_and_fields_it_doesnt_know_yet(make_client: MakeClient) -
     assert later.status == "paused"
     assert not has_ended(later)
     assert later.model_extra == {"priority": "high"}
+
+
+def test_reads_each_outputs_preview_or_null_until_its_made(make_client: MakeClient) -> None:
+    video = preview("a1", clip=True)
+    outputs = [
+        run_output(0, mimeType="video/mp4", durationMs=8000, preview=video),
+        run_output(1, mimeType="video/mp4", durationMs=8000),
+    ]
+    zerogen, _ = make_client(json_response(run_body(status="succeeded", outputs=outputs)))
+    ended = run(zerogen.runs.get("g1"))
+    clip, fresh = (output.asset for output in ended.outputs)
+    assert clip is not None
+    assert clip.preview is not None
+    assert clip.preview.image96_url == video["image96Url"]
+    assert clip.preview.image512_url == video["image512Url"]
+    assert clip.preview.video_url == video["videoUrl"]
+    assert clip.preview.expires_at == datetime(2026, 10, 25, 0, 5, tzinfo=timezone.utc)
+    assert fresh is not None
+    assert fresh.preview is None
 
 
 def test_lists_every_page_with_the_same_filters(make_client: MakeClient) -> None:

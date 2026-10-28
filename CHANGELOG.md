@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.1
+
+- Asset previews. Each asset from `assets.search` and `assets.get`, and each
+  run output's `asset`, has a `preview`: an `AssetPreview` with `image96_url`,
+  `image512_url`, `video_url` and `expires_at`, or `None` until the previews
+  are made. The URLs are signed: load them without your API key, and read the
+  page, asset or run again after `expires_at`. 0.2.0 receives the same field
+  as an untyped extra.
+- When storage answers with an error whose body fails to read, the client now
+  closes the response, so an `http_client` whose transport frees resources on
+  close no longer leaks them.
+
 ## 0.2.0
 
 This release breaks compatibility with 0.1.0.

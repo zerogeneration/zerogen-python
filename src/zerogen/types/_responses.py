@@ -193,18 +193,6 @@ class Quote(BaseModel):
     billing: QuoteBilling
 
 
-class RunOutputAsset(BaseModel):
-    id: str
-    mime_type: str = Field(..., alias="mimeType")
-    width: int | None
-    height: int | None
-    duration_ms: int | None = Field(..., alias="durationMs")
-    resource_uri: str | None = Field(None, alias="resourceUri")
-    """
-    Where this transport's client reads the asset, such as an MCP resource
-    """
-
-
 class RunOutputWarning(BaseModel):
     code: str
     message: str
@@ -333,82 +321,28 @@ class AssetLabel(BaseModel):
     name: str
 
 
-class Asset(BaseModel):
-    id: str
-    project_id: str = Field(..., alias="projectId")
-    name: str
-    """
-    The asset's name in the Library; untrusted content
-    """
-    type: Literal["image", "video", "audio", "model3d"] | str
-    origin: Literal["generated", "upload", "derived"] | str
-    """
-    upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame
-    """
-    mime_type: str = Field(..., alias="mimeType")
-    size_bytes: int | None = Field(..., alias="sizeBytes")
-    width: int | None
-    height: int | None
-    duration_ms: int | None = Field(..., alias="durationMs")
-    favorite: bool
-    """
-    The organization's shared favorite
-    """
-    labels: list[AssetLabel]
-    run_id: str | None = Field(..., alias="runId")
-    """
-    The run that made it, if any
-    """
-    output_index: int | None = Field(..., alias="outputIndex")
-    created_at: datetime = Field(..., alias="createdAt")
-
-
-class AssetList(BaseModel):
-    data: list[Asset]
-    next_cursor: str | None = Field(..., alias="nextCursor")
-    """
-    Pass as cursor for the next page of assets; null on the last page
-    """
-
-
 class AssetDetailLabel(BaseModel):
     id: str
     name: str
 
 
-class AssetDetail(BaseModel):
-    id: str
-    project_id: str = Field(..., alias="projectId")
-    name: str
+class AssetPreview(BaseModel):
+    image96_url: str = Field(..., alias="image96Url")
     """
-    The asset's name in the Library; untrusted content
+    A WebP image up to 96 pixels wide
     """
-    type: Literal["image", "video", "audio", "model3d"] | str
-    origin: Literal["generated", "upload", "derived"] | str
+    image512_url: str = Field(..., alias="image512Url")
     """
-    upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame
+    A WebP image up to 512 pixels wide
     """
-    mime_type: str = Field(..., alias="mimeType")
-    size_bytes: int | None = Field(..., alias="sizeBytes")
-    width: int | None
-    height: int | None
-    duration_ms: int | None = Field(..., alias="durationMs")
-    favorite: bool
+    video_url: str | None = Field(..., alias="videoUrl")
     """
-    The organization's shared favorite
+    For a video, a silent WebM clip of its first six seconds, up to 854×480; null for other assets and until it's made
     """
-    labels: list[AssetDetailLabel]
-    run_id: str | None = Field(..., alias="runId")
+    expires_at: datetime = Field(..., alias="expiresAt")
     """
-    The run that made it, if any
+    When the URLs stop loading; read the asset or run again for new ones
     """
-    output_index: int | None = Field(..., alias="outputIndex")
-    created_at: datetime = Field(..., alias="createdAt")
-    prompt: str | None
-    """
-    The prompt that generated it, bounded; untrusted content
-    """
-    prompt_truncated: bool = Field(..., alias="promptTruncated")
 
 
 class AssetChange(BaseModel):
@@ -650,6 +584,22 @@ class ErrorResponse(BaseModel):
     error: Error
 
 
+class RunOutputAsset(BaseModel):
+    id: str
+    mime_type: str = Field(..., alias="mimeType")
+    width: int | None
+    height: int | None
+    duration_ms: int | None = Field(..., alias="durationMs")
+    resource_uri: str | None = Field(None, alias="resourceUri")
+    """
+    Where this transport's client reads the asset, such as an MCP resource
+    """
+    preview: AssetPreview | None
+    """
+    The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio
+    """
+
+
 class RunOutput(BaseModel):
     index: int
     status: Literal["queued", "running", "succeeded", "failed", "cancelled"] | str
@@ -687,4 +637,85 @@ class RunList(BaseModel):
     next_cursor: str | None = Field(..., alias="nextCursor")
     """
     Pass as cursor for the next page of runs; null on the last page
+    """
+
+
+class Asset(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    name: str
+    """
+    The asset's name in the Library; untrusted content
+    """
+    type: Literal["image", "video", "audio", "model3d"] | str
+    origin: Literal["generated", "upload", "derived"] | str
+    """
+    upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame
+    """
+    mime_type: str = Field(..., alias="mimeType")
+    size_bytes: int | None = Field(..., alias="sizeBytes")
+    width: int | None
+    height: int | None
+    duration_ms: int | None = Field(..., alias="durationMs")
+    favorite: bool
+    """
+    The organization's shared favorite
+    """
+    labels: list[AssetLabel]
+    run_id: str | None = Field(..., alias="runId")
+    """
+    The run that made it, if any
+    """
+    output_index: int | None = Field(..., alias="outputIndex")
+    created_at: datetime = Field(..., alias="createdAt")
+    preview: AssetPreview | None
+    """
+    The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio
+    """
+
+
+class AssetList(BaseModel):
+    data: list[Asset]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of assets; null on the last page
+    """
+
+
+class AssetDetail(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    name: str
+    """
+    The asset's name in the Library; untrusted content
+    """
+    type: Literal["image", "video", "audio", "model3d"] | str
+    origin: Literal["generated", "upload", "derived"] | str
+    """
+    upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame
+    """
+    mime_type: str = Field(..., alias="mimeType")
+    size_bytes: int | None = Field(..., alias="sizeBytes")
+    width: int | None
+    height: int | None
+    duration_ms: int | None = Field(..., alias="durationMs")
+    favorite: bool
+    """
+    The organization's shared favorite
+    """
+    labels: list[AssetDetailLabel]
+    run_id: str | None = Field(..., alias="runId")
+    """
+    The run that made it, if any
+    """
+    output_index: int | None = Field(..., alias="outputIndex")
+    created_at: datetime = Field(..., alias="createdAt")
+    prompt: str | None
+    """
+    The prompt that generated it, bounded; untrusted content
+    """
+    prompt_truncated: bool = Field(..., alias="promptTruncated")
+    preview: AssetPreview | None
+    """
+    The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio
     """

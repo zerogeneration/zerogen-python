@@ -173,7 +173,37 @@ def asset(id: str = "a1", **fields: Any) -> dict[str, Any]:
         "runId": "g1",
         "outputIndex": 0,
         "createdAt": "2026-10-25T00:00:00.000Z",
+        "preview": None,
         **fields,
+    }
+
+
+def preview(id: str = "a1", *, clip: bool = False) -> dict[str, Any]:
+    """An asset's preview, with fake signed URLs."""
+    signed = "?X-Amz-Expires=300&X-Amz-Signature=fake"
+    return {
+        "image96Url": f"https://storage.example.com/{id}-96.webp{signed}",
+        "image512Url": f"https://storage.example.com/{id}-512.webp{signed}",
+        "videoUrl": f"https://storage.example.com/{id}-clip.webm{signed}" if clip else None,
+        "expiresAt": "2026-10-25T00:05:00.000Z",
+    }
+
+
+def run_output(index: int = 0, **asset_fields: Any) -> dict[str, Any]:
+    """A run's succeeded output, with its asset."""
+    return {
+        "index": index,
+        "status": "succeeded",
+        "asset": {
+            "id": f"a{index + 1}",
+            "mimeType": "image/png",
+            "width": 1024,
+            "height": 1024,
+            "durationMs": None,
+            "preview": None,
+            **asset_fields,
+        },
+        "error": None,
     }
 
 

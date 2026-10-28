@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -19,6 +20,7 @@ from fakes import (
     first_page,
     json_response,
     page,
+    preview,
     raises,
     run,
 )
@@ -200,6 +202,31 @@ def test_searches_assets_with_repeated_filters_and_favorites_only_when_asked(
         "&type=video&resolution=4k&sort=oldest",
         f"{API}/assets",
     ]
+
+
+def test_reads_each_assets_preview_or_null_until_its_made(make_client: MakeClient) -> None:
+    video = preview("a1", clip=True)
+    still = preview("a3")
+    zerogen, _ = make_client(
+        json_response(
+            page(
+                asset("a1", type="video", mimeType="video/mp4", preview=video),
+                asset("a2", type="audio", mimeType="audio/mpeg", width=None, height=None),
+            )
+        ),
+        json_response(asset("a3", prompt="A lighthouse", promptTruncated=False, preview=still)),
+    )
+    clip, sound = first_page(zerogen.assets.search(project_id="p1")).data
+    assert clip.preview is not None
+    assert clip.preview.image96_url == video["image96Url"]
+    assert clip.preview.image512_url == video["image512Url"]
+    assert clip.preview.video_url == video["videoUrl"]
+    assert clip.preview.expires_at == datetime(2026, 10, 25, 0, 5, tzinfo=timezone.utc)
+    assert sound.preview is None
+    detail = run(zerogen.assets.get("a3"))
+    assert detail.preview is not None
+    assert detail.preview.image512_url == still["image512Url"]
+    assert detail.preview.video_url is None
 
 
 def test_downloads_from_storage_without_the_api_key_or_any_of_the_clients_headers(
