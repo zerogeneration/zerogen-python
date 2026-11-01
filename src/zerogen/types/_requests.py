@@ -98,6 +98,10 @@ class CreateRunRequest(TypedDict, closed=True):
     """
     Only the parameters the model's schema lists
     """
+    seed: NotRequired[int]
+    """
+    Only for models whose schema lists seed: the same seed with the same request reproduces a result as closely as the model allows. The model picks one when omitted
+    """
     maxCostMicroUsd: NotRequired[int]
     """
     Refuse to start when the quote exceeds this amount
@@ -168,6 +172,10 @@ class CreateFolderRequest(TypedDict, closed=True):
     parentId: NotRequired[str | None]
     """
     The parent folder; omit or null for the project root
+    """
+    reuseExisting: NotRequired[bool]
+    """
+    When true, return the folder with this name that's already under the parent, with 200, instead of making another. Names match after Unicode NFC, case-sensitively; the oldest wins when several do
     """
 
 

@@ -2192,7 +2192,7 @@
           "Folders"
         ],
         "summary": "Create a folder",
-        "description": "Creates a folder at the project root or under `parentId`. With an `Idempotency-Key`, a retry returns the folder the first request created. A test key can't create folders.\n\nNeeds the `library:organize` scope.",
+        "description": "Creates a folder at the project root or under `parentId`. With `reuseExisting: true`, a folder with that name already under the parent is returned instead, so clients filing into the same path at once share one folder; create a path such as `SH010/anim` one folder at a time. With an `Idempotency-Key`, a retry returns the folder the first request created. A test key can't create folders.\n\nNeeds the `library:organize` scope.",
         "parameters": [
           {
             "name": "projectId",
@@ -2215,12 +2215,40 @@
                 "$ref": "#/components/schemas/CreateFolderRequest"
               },
               "example": {
-                "name": "Shots"
+                "name": "Shots",
+                "reuseExisting": true
               }
             }
           }
         },
         "responses": {
+          "200": {
+            "description": "A folder with that name was already there.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folder"
+                }
+              }
+            }
+          },
           "201": {
             "description": "The new folder.",
             "headers": {
@@ -3900,6 +3928,12 @@
             },
             "description": "Only the parameters the model's schema lists"
           },
+          "seed": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "Only for models whose schema lists seed: the same seed with the same request reproduces a result as closely as the model allows. The model picks one when omitted"
+          },
           "maxCostMicroUsd": {
             "type": "integer",
             "minimum": 0,
@@ -4099,6 +4133,10 @@
                 "type": "null"
               }
             ]
+          },
+          "reuseExisting": {
+            "description": "When true, return the folder with this name that's already under the parent, with 200, instead of making another. Names match after Unicode NFC, case-sensitively; the oldest wins when several do",
+            "type": "boolean"
           }
         },
         "required": [

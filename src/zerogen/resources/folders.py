@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
@@ -24,6 +25,15 @@ if TYPE_CHECKING:
 def _path(project_id: str, folder_id: str | None = None) -> str:
     path = f"/projects/{quote(project_id, safe='')}/folders"
     return path if folder_id is None else f"{path}/{quote(folder_id, safe='')}"
+
+
+def _names(path: str | Sequence[str]) -> list[str]:
+    """A path's folder names: a string splits on `/` and skips empty parts, and a list is taken
+    as it is, so a name can contain `/`."""
+    names = [name for name in path.split("/") if name.strip()] if isinstance(path, str) else [*path]
+    if not names:
+        raise ValueError("A folder path needs at least one folder name.")
+    return names
 
 
 class Folders:
@@ -59,11 +69,39 @@ class Folders:
         /,
         **options: Unpack[PostRequestOptions],
     ) -> Folder:
-        """Creates a folder at the project root or under `parentId`. A test key can't create
-        folders."""
+        """Creates a folder at the project root or under `parentId`. With `reuseExisting`, a
+        folder of that name already under the parent is returned instead. A test key can't
+        create folders."""
         return self._client._request(
             Folder.model_validate, "POST", _path(project_id), body=body, options=options
         )
+
+    def ensure_path(
+        self,
+        project_id: str,
+        path: str | Sequence[str],
+        /,
+        *,
+        parent_id: str | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> Folder:
+        """Returns the folder at `path`, such as `"SH010/anim"`, creating each folder on the
+        way that isn't there yet. Each level is a create with `reuseExisting`, which returns the
+        folder of that name already under its parent, so clients filing into the same path at
+        once share its folders. A test key can't create folders.
+
+        Args:
+            path: Folder names from `parent_id`, or from the project root. A string splits on
+                `/`; pass a list when a name contains `/`.
+            parent_id: The folder the path starts under; default the project root.
+        """
+        folder: Folder | None = None
+        for name in _names(path):
+            body: CreateFolderRequest = {"name": name, "parentId": parent_id, "reuseExisting": True}
+            folder = self.create(project_id, body, **options)
+            parent_id = folder.id
+        assert folder is not None
+        return folder
 
     def update(
         self,
@@ -170,11 +208,39 @@ class AsyncFolders:
         /,
         **options: Unpack[PostRequestOptions],
     ) -> Folder:
-        """Creates a folder at the project root or under `parentId`. A test key can't create
-        folders."""
+        """Creates a folder at the project root or under `parentId`. With `reuseExisting`, a
+        folder of that name already under the parent is returned instead. A test key can't
+        create folders."""
         return await self._client._request(
             Folder.model_validate, "POST", _path(project_id), body=body, options=options
         )
+
+    async def ensure_path(
+        self,
+        project_id: str,
+        path: str | Sequence[str],
+        /,
+        *,
+        parent_id: str | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> Folder:
+        """Returns the folder at `path`, such as `"SH010/anim"`, creating each folder on the
+        way that isn't there yet. Each level is a create with `reuseExisting`, which returns the
+        folder of that name already under its parent, so clients filing into the same path at
+        once share its folders. A test key can't create folders.
+
+        Args:
+            path: Folder names from `parent_id`, or from the project root. A string splits on
+                `/`; pass a list when a name contains `/`.
+            parent_id: The folder the path starts under; default the project root.
+        """
+        folder: Folder | None = None
+        for name in _names(path):
+            body: CreateFolderRequest = {"name": name, "parentId": parent_id, "reuseExisting": True}
+            folder = await self.create(project_id, body, **options)
+            parent_id = folder.id
+        assert folder is not None
+        return folder
 
     async def update(
         self,
