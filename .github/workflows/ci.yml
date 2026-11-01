@@ -38,3 +38,17 @@ jobs:
         with:
           python-version: "3.10"
       - run: uv run --isolated --resolution lowest-direct pytest -p no:typeguard
+
+  comfyui:
+    name: Python 3.13, ComfyUI 0.43.0's dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
+        with:
+          python-version: "3.13"
+      - run: uv venv --python 3.13 .comfyui
+      - run: >-
+          uv pip install --python .comfyui . pytest
+          pydantic==2.14.1 anyio==4.15.1 typing-extensions==4.16.0
+      - run: .comfyui/bin/python -m pytest

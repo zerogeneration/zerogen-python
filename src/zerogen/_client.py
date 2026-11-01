@@ -76,6 +76,7 @@ class _BaseClient:
         timeout: float,
         max_retries: int,
         default_headers: Mapping[str, str] | None,
+        user_agent: str | None,
     ) -> None:
         api_key = api_key if api_key is not None else _env("ZEROGEN_API_KEY")
         if not api_key:
@@ -86,6 +87,7 @@ class _BaseClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self._default_headers = dict(default_headers or {})
+        self._user_agent = _user_agent(user_agent)
 
     def _prepare(
         self,
@@ -96,9 +98,7 @@ class _BaseClient:
         wait: int | None,
         options: RequestOptions,
     ) -> _Prepared:
-        headers = httpx.Headers(
-            {"Accept": "application/json", "User-Agent": f"zerogen-python/{__version__}"}
-        )
+        headers = httpx.Headers({"Accept": "application/json", "User-Agent": self._user_agent})
         headers.update(self._default_headers)
         headers.update(options.get("headers") or {})
         headers["Authorization"] = f"Bearer {self._api_key}"
@@ -147,6 +147,7 @@ class ZeroGen(_BaseClient):
         timeout: float = 120.0,
         max_retries: int = 2,
         default_headers: Mapping[str, str] | None = None,
+        user_agent: str | None = None,
         http_client: httpx.Client | None = None,
     ) -> None:
         """Creates a client.
@@ -159,6 +160,8 @@ class ZeroGen(_BaseClient):
                 that waits on a run gets its wait added.
             max_retries: How many times to retry a connection error or a retryable response.
             default_headers: Headers to send with every request.
+            user_agent: Your app's name and version, such as `"zerogen-nodes/0.1"`, which the
+                `User-Agent` header names before this library's.
             http_client: An `httpx.Client` to send requests with. The client doesn't close it.
         """
         super().__init__(
@@ -167,6 +170,7 @@ class ZeroGen(_BaseClient):
             timeout=timeout,
             max_retries=max_retries,
             default_headers=default_headers,
+            user_agent=user_agent,
         )
         self._http = http_client if http_client is not None else httpx.Client()
         self._owns_http = http_client is None
@@ -330,6 +334,7 @@ class AsyncZeroGen(_BaseClient):
         timeout: float = 120.0,
         max_retries: int = 2,
         default_headers: Mapping[str, str] | None = None,
+        user_agent: str | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         """Creates a client.
@@ -342,6 +347,8 @@ class AsyncZeroGen(_BaseClient):
                 that waits on a run gets its wait added.
             max_retries: How many times to retry a connection error or a retryable response.
             default_headers: Headers to send with every request.
+            user_agent: Your app's name and version, such as `"zerogen-nodes/0.1"`, which the
+                `User-Agent` header names before this library's.
             http_client: An `httpx.AsyncClient` to send requests with. The client doesn't
                 close it.
         """
@@ -351,6 +358,7 @@ class AsyncZeroGen(_BaseClient):
             timeout=timeout,
             max_retries=max_retries,
             default_headers=default_headers,
+            user_agent=user_agent,
         )
         self._http = http_client if http_client is not None else httpx.AsyncClient()
         self._owns_http = http_client is None
@@ -495,6 +503,17 @@ class AsyncZeroGen(_BaseClient):
 
 def _env(name: str) -> str | None:
     return os.environ.get(name) or None
+
+
+def _user_agent(product: str | None) -> str:
+    """The `User-Agent` header: the caller's product, if any, then this library's."""
+    own = f"zerogen-python/{__version__}"
+    product = (product or "").strip()
+    if not product:
+        return own
+    if any(char < " " or char == "\x7f" for char in product):
+        raise ValueError("user_agent can't contain line breaks or other control characters.")
+    return f"{product} {own}"
 
 
 def _storage_request(

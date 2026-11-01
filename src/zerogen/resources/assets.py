@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import contextlib
+import mimetypes
 import os
+import re
 from collections.abc import AsyncIterator, Iterator, Sequence
+from dataclasses import dataclass, field
 from typing import IO, TYPE_CHECKING, Literal, TypeAlias, TypeVar, Union, overload
 from urllib.parse import quote
 
@@ -34,6 +37,41 @@ AssetType = Literal["image", "video", "audio", "model3d"]
 AssetOrigin = Literal["generated", "upload", "derived"]
 Resolution = Literal["4k", "1440p", "1080p", "720p", "sd", "2k", "1k", "0.5k"]
 Value = TypeVar("Value", bound=str)
+
+_UNSAFE_CHARACTERS = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*]')
+_DEVICE_NAME = re.compile(r"(?i)(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?")
+_MAX_NAME_BYTES = 240
+"""Under the 255 bytes most file systems allow, to leave room for a number."""
+_MAX_EXTENSION_BYTES = 16
+_MAX_NUMBER = 10_000
+
+
+@dataclass(frozen=True)
+class DownloadInfo:
+    """What a download read about the file it downloaded."""
+
+    asset_id: str
+    filename: str
+    """The name the file downloads under; untrusted content, so don't use it as a path as it
+    is. `download_to` makes a safe name from it."""
+    mime_type: str
+    size_bytes: int
+    """How many bytes the download received."""
+
+
+@dataclass(frozen=True)
+class Download(DownloadInfo):
+    """A downloaded file's bytes, with what the download read about it."""
+
+    content: bytes = field(repr=False)
+
+
+@dataclass(frozen=True)
+class SavedDownload(DownloadInfo):
+    """A file that `download_to` saved, with what the download read about it."""
+
+    path: str
+    """Where it saved the file."""
 
 
 def _path(asset_id: str) -> str:
@@ -74,47 +112,114 @@ def _search_query(
     }
 
 
-def _write(chunks: Iterator[bytes], destination: DownloadDestination | None) -> bytes | None:
-    if destination is None:
-        return b"".join(chunks)
+def _safe_name(filename: str, asset_id: str, mime_type: str) -> str:
+    """A name to save a download under in a directory, made from the asset's filename, which
+    is untrusted: no path separators or characters Windows refuses, not hidden, not a Windows
+    device name, and short enough for any file system. Without one, the asset ID with the
+    media type's extension."""
+    extension = mimetypes.guess_extension(mime_type) or ""
+    name = _clean_name(filename) or _clean_name(asset_id + extension) or f"download{extension}"
+    return f"_{name}" if _DEVICE_NAME.fullmatch(name) else name
+
+
+def _clean_name(name: str) -> str:
+    stem, extension = _split_name(_UNSAFE_CHARACTERS.sub("_", name).strip(" ."))
+    room = _MAX_NAME_BYTES - len(extension.encode())
+    stem = stem.encode()[:room].decode(errors="ignore")
+    return (stem + extension).rstrip(" .")
+
+
+def _split_name(name: str) -> tuple[str, str]:
+    stem, extension = os.path.splitext(name)
+    if len(extension.encode()) > _MAX_EXTENSION_BYTES:
+        return name, ""
+    return stem, extension
+
+
+def _numbered_paths(directory: str | os.PathLike[str], name: str) -> Iterator[str]:
+    """`name` in `directory`, then the same with a number, as in `lighthouse (1).png`."""
+    stem, extension = _split_name(name)
+    yield os.path.join(directory, name)
+    for number in range(1, _MAX_NUMBER):
+        yield os.path.join(directory, f"{stem} ({number}){extension}")
+
+
+def _write(chunks: Iterator[bytes], destination: DownloadDestination) -> int:
+    """Writes a download into a path, which it removes again if the download stops, or into
+    a file object. Returns how many bytes it wrote."""
     if isinstance(destination, (str, os.PathLike)):
         path = os.fspath(destination)
         with open(path, "wb") as file:
-            try:
-                for chunk in chunks:
-                    file.write(chunk)
-            except BaseException:
-                file.close()
-                with contextlib.suppress(OSError):
-                    os.remove(path)
-                raise
-        return None
+            return _fill(file, path, chunks)
+    size = 0
     for chunk in chunks:
         destination.write(chunk)
-    return None
+        size += len(chunk)
+    return size
 
 
-async def _async_write(
-    chunks: AsyncIterator[bytes], destination: DownloadDestination | None
-) -> bytes | None:
-    if destination is None:
-        return b"".join([chunk async for chunk in chunks])
+def _fill(file: IO[bytes], path: str, chunks: Iterator[bytes]) -> int:
+    """Writes a download into a file it opened at `path`, and removes the file again if the
+    download stops."""
+    size = 0
+    try:
+        for chunk in chunks:
+            file.write(chunk)
+            size += len(chunk)
+    except BaseException:
+        file.close()
+        with contextlib.suppress(OSError):
+            os.remove(path)
+        raise
+    return size
+
+
+def _create(directory: str | os.PathLike[str], name: str) -> tuple[str, IO[bytes]]:
+    """Creates a file named `name` in `directory`, or numbered when that name is taken."""
+    for path in _numbered_paths(directory, name):
+        with contextlib.suppress(FileExistsError):
+            return path, open(path, "xb")
+    raise FileExistsError(f"Every name for {name!r} in the directory is taken.")
+
+
+async def _async_write(chunks: AsyncIterator[bytes], destination: DownloadDestination) -> int:
     if isinstance(destination, (str, os.PathLike)):
         path = os.fspath(destination)
         async with await anyio.open_file(path, "wb") as file:
-            try:
-                async for chunk in chunks:
-                    await file.write(chunk)
-            except BaseException:
-                file.wrapped.close()
-                with contextlib.suppress(OSError):
-                    os.remove(path)
-                raise
-        return None
+            return await _async_fill(file, path, chunks)
     file = anyio.wrap_file(destination)
+    size = 0
     async for chunk in chunks:
         await file.write(chunk)
-    return None
+        size += len(chunk)
+    return size
+
+
+async def _async_fill(file: anyio.AsyncFile[bytes], path: str, chunks: AsyncIterator[bytes]) -> int:
+    size = 0
+    try:
+        async for chunk in chunks:
+            await file.write(chunk)
+            size += len(chunk)
+    except BaseException:
+        file.wrapped.close()
+        with contextlib.suppress(OSError):
+            os.remove(path)
+        raise
+    return size
+
+
+async def _async_create(
+    directory: str | os.PathLike[str], name: str
+) -> tuple[str, anyio.AsyncFile[bytes]]:
+    for path in _numbered_paths(directory, name):
+        with contextlib.suppress(FileExistsError):
+            return path, await anyio.open_file(path, "xb")
+    raise FileExistsError(f"Every name for {name!r} in the directory is taken.")
+
+
+def _info(link: AssetDownload, size: int) -> DownloadInfo:
+    return DownloadInfo(link.asset_id, link.filename, link.mime_type, size)
 
 
 class Assets:
@@ -223,7 +328,7 @@ class Assets:
         )
 
     @overload
-    def download(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> bytes: ...
+    def download(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> Download: ...
 
     @overload
     def download(
@@ -232,7 +337,7 @@ class Assets:
         /,
         destination: DownloadDestination,
         **options: Unpack[RequestOptions],
-    ) -> None: ...
+    ) -> DownloadInfo: ...
 
     def download(
         self,
@@ -240,9 +345,10 @@ class Assets:
         /,
         destination: DownloadDestination | None = None,
         **options: Unpack[RequestOptions],
-    ) -> bytes | None:
-        """Downloads an asset's original file. Returns its bytes, or streams them into
-        `destination` and returns None.
+    ) -> Download | DownloadInfo:
+        """Downloads an asset's original file, with its filename, media type and size.
+        Returns a `Download` with its bytes, or streams them into `destination` and returns
+        a `DownloadInfo`.
 
         Each call reads a new signed link, and sends it to storage without the API key or any
         of the client's headers. When storage refuses the link as expired, it reads a new one
@@ -252,20 +358,50 @@ class Assets:
             destination: A path, which is removed again if the download fails partway, or a
                 binary file object open for writing.
         """
-        response = self._open(asset_id, options)
+        response, link = self._open(asset_id, options)
         try:
-            return _write(response.iter_bytes(), destination)
+            if destination is None:
+                content = b"".join(response.iter_bytes())
+                return Download(link.asset_id, link.filename, link.mime_type, len(content), content)
+            return _info(link, _write(response.iter_bytes(), destination))
         except httpx.TransportError as error:
             raise ZeroGenConnectionError("The download stopped before it finished.") from error
         finally:
             response.close()
 
-    def _open(self, asset_id: str, options: RequestOptions) -> httpx.Response:
+    def download_to(
+        self,
+        asset_id: str,
+        directory: str | os.PathLike[str],
+        /,
+        **options: Unpack[RequestOptions],
+    ) -> SavedDownload:
+        """Downloads an asset's original file into `directory`, which must exist, under a
+        name made from its filename, and returns where it saved it.
+
+        The name has no path separators or characters that Windows refuses. When a file
+        already has it, the download takes the first free numbered name, as in
+        `lighthouse (1).png`, so it never overwrites a file. It removes the file again if the
+        download fails partway. Otherwise it works as `download` does.
+        """
+        response, link = self._open(asset_id, options)
+        try:
+            name = _safe_name(link.filename, link.asset_id, link.mime_type)
+            path, file = _create(directory, name)
+            with file:
+                size = _fill(file, path, response.iter_bytes())
+            return SavedDownload(link.asset_id, link.filename, link.mime_type, size, path)
+        except httpx.TransportError as error:
+            raise ZeroGenConnectionError("The download stopped before it finished.") from error
+        finally:
+            response.close()
+
+    def _open(self, asset_id: str, options: RequestOptions) -> tuple[httpx.Response, AssetDownload]:
         refreshed = False
         while True:
             link = self.get_download(asset_id, **options)
             try:
-                return self._client._storage(
+                response = self._client._storage(
                     "GET",
                     link.url,
                     headers={},
@@ -278,6 +414,8 @@ class Assets:
                 if error.status != 403 or refreshed:
                     raise
                 refreshed = True
+            else:
+                return response, link
 
 
 class AsyncAssets:
@@ -388,7 +526,7 @@ class AsyncAssets:
         )
 
     @overload
-    async def download(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> bytes: ...
+    async def download(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> Download: ...
 
     @overload
     async def download(
@@ -397,7 +535,7 @@ class AsyncAssets:
         /,
         destination: DownloadDestination,
         **options: Unpack[RequestOptions],
-    ) -> None: ...
+    ) -> DownloadInfo: ...
 
     async def download(
         self,
@@ -405,9 +543,10 @@ class AsyncAssets:
         /,
         destination: DownloadDestination | None = None,
         **options: Unpack[RequestOptions],
-    ) -> bytes | None:
-        """Downloads an asset's original file. Returns its bytes, or streams them into
-        `destination` and returns None.
+    ) -> Download | DownloadInfo:
+        """Downloads an asset's original file, with its filename, media type and size.
+        Returns a `Download` with its bytes, or streams them into `destination` and returns
+        a `DownloadInfo`.
 
         Each call reads a new signed link, and sends it to storage without the API key or any
         of the client's headers. When storage refuses the link as expired, it reads a new one
@@ -417,20 +556,52 @@ class AsyncAssets:
             destination: A path, which is removed again if the download fails partway, or a
                 binary file object open for writing, written to in a worker thread.
         """
-        response = await self._open(asset_id, options)
+        response, link = await self._open(asset_id, options)
         try:
-            return await _async_write(response.aiter_bytes(), destination)
+            if destination is None:
+                content = b"".join([chunk async for chunk in response.aiter_bytes()])
+                return Download(link.asset_id, link.filename, link.mime_type, len(content), content)
+            return _info(link, await _async_write(response.aiter_bytes(), destination))
         except httpx.TransportError as error:
             raise ZeroGenConnectionError("The download stopped before it finished.") from error
         finally:
             await response.aclose()
 
-    async def _open(self, asset_id: str, options: RequestOptions) -> httpx.Response:
+    async def download_to(
+        self,
+        asset_id: str,
+        directory: str | os.PathLike[str],
+        /,
+        **options: Unpack[RequestOptions],
+    ) -> SavedDownload:
+        """Downloads an asset's original file into `directory`, which must exist, under a
+        name made from its filename, and returns where it saved it.
+
+        The name has no path separators or characters that Windows refuses. When a file
+        already has it, the download takes the first free numbered name, as in
+        `lighthouse (1).png`, so it never overwrites a file. It removes the file again if the
+        download fails partway. Otherwise it works as `download` does.
+        """
+        response, link = await self._open(asset_id, options)
+        try:
+            name = _safe_name(link.filename, link.asset_id, link.mime_type)
+            path, file = await _async_create(directory, name)
+            async with file:
+                size = await _async_fill(file, path, response.aiter_bytes())
+            return SavedDownload(link.asset_id, link.filename, link.mime_type, size, path)
+        except httpx.TransportError as error:
+            raise ZeroGenConnectionError("The download stopped before it finished.") from error
+        finally:
+            await response.aclose()
+
+    async def _open(
+        self, asset_id: str, options: RequestOptions
+    ) -> tuple[httpx.Response, AssetDownload]:
         refreshed = False
         while True:
             link = await self.get_download(asset_id, **options)
             try:
-                return await self._client._storage(
+                response = await self._client._storage(
                     "GET",
                     link.url,
                     headers={},
@@ -443,3 +614,5 @@ class AsyncAssets:
                 if error.status != 403 or refreshed:
                     raise
                 refreshed = True
+            else:
+                return response, link

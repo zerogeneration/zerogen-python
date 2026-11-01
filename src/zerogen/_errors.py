@@ -81,6 +81,17 @@ class ZeroGenConnectionError(Exception):
     """The request got no response: the connection failed or the request timed out."""
 
 
+class WaitCancelledError(Exception):
+    """`ZeroGen.runs.wait_for` stopped waiting because its `cancel` event was set. The run
+    keeps running; to stop it, call `runs.cancel`."""
+
+    run_id: str
+
+    def __init__(self, run_id: str) -> None:
+        super().__init__(f"Stopped waiting for run {run_id}; it keeps running.")
+        self.run_id = run_id
+
+
 def _envelope(text: str) -> dict[str, Any] | None:
     """The error in ZeroGen's envelope, when the body is one."""
     try:

@@ -71,6 +71,35 @@ asyncio.run(main())
 Cancel the task to stop a `create_and_wait` or `wait_for` from waiting; the run
 keeps running.
 
+## Progress
+
+To show a run's progress while you wait, pass `wait_for` an `on_update`
+function, which gets the run after each read, and a shorter `poll`:
+
+```python
+from zerogen.types import Run
+
+
+def report(run: Run) -> None:
+    done = sum(output.status == "succeeded" for output in run.outputs)
+    print(f"{run.status}: {done} of {len(run.outputs)} outputs")
+
+
+run = zerogen.runs.create(request)
+run = zerogen.runs.wait_for(run.id, poll=5, on_update=report)
+```
+
+`poll` is how many seconds each read may wait for the run to end, from 1 to 60,
+and 60 by default. The API answers as soon as the run ends, so a shorter `poll`
+only reports progress more often, at a request each time. With `AsyncZeroGen`,
+`on_update` can also be a coroutine function.
+
+To stop waiting from another thread, such as when someone presses Cancel, pass
+`ZeroGen`'s `wait_for` a `threading.Event` as `cancel`. When it's set,
+`wait_for` raises `WaitCancelledError` at once, even partway through a read.
+With `AsyncZeroGen`, cancel the task instead. Either way, the run keeps
+running; to stop it, call `runs.cancel`.
+
 ## Inputs
 
 Give a run an input by asset ID or by `https` URL. To upload a file, use
@@ -112,12 +141,25 @@ List filters that take several values, such as `label_id` and `resolution`,
 take a list.
 
 To download an asset's original file, use `assets.download`. It returns the
-file's bytes, or streams them into a path or a binary file object:
+file's bytes in `content`, with its `filename`, `mime_type` and `size_bytes`.
+Given a path or a binary file object, it streams the file there instead, and
+returns the rest. `assets.download_to` saves the file in a directory and
+returns its `path`:
 
 ```python
 image = zerogen.assets.download(asset_id)
+print(image.mime_type, len(image.content))
+
 zerogen.assets.download(asset_id, "lighthouse.png")
+
+saved = zerogen.assets.download_to(asset_id, "downloads")
+print(saved.path)
 ```
+
+The `filename` is untrusted content, so don't use it as a path yourself.
+`download_to` makes a name from it with no path separators or characters that
+Windows refuses. When a file in the directory already has that name, it adds a
+number, as in `lighthouse (1).png`, rather than overwrite the file.
 
 Each call reads a new signed link and sends it to storage without your API key.
 When storage refuses a link as expired, it reads a new one and tries once more.
@@ -223,6 +265,7 @@ zerogen = ZeroGen(
 | `max_retries` | `2` | Retries for each request. |
 | `timeout` | `120` | Seconds httpx waits on each step of an attempt. A request that waits on a run gets its wait added. |
 | `default_headers` | None | Headers to send with every request. |
+| `user_agent` | None | Your app's name and version, such as `zerogen-nodes/0.1`, which the `User-Agent` header names before this library's. |
 | `http_client` | A new `httpx.Client` or `httpx.AsyncClient` | The httpx client to send requests with, such as one with your proxy settings. |
 
 Every method also takes request options as keyword arguments: `timeout`,

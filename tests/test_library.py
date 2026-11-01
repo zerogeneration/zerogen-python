@@ -25,7 +25,7 @@ from fakes import (
     run,
 )
 
-from zerogen import ZeroGenConnectionError, ZeroGenError
+from zerogen import DownloadInfo, SavedDownload, ZeroGenConnectionError, ZeroGenError
 from zerogen.resources import assets as assets_module
 
 API = "https://api.zerogen.com/v1"
@@ -238,7 +238,11 @@ def test_downloads_from_storage_without_the_api_key_or_any_of_the_clients_header
         default_headers={"X-Team": "t1"},
         http_options={"headers": {"X-Proxy-Tag": "p1"}},
     )
-    assert run(zerogen.assets.download("a1", headers={"X-Trace": "r1"})) == HELLO
+    download = run(zerogen.assets.download("a1", headers={"X-Trace": "r1"}))
+    assert download.content == HELLO
+    assert (download.asset_id, download.filename) == ("a1", "lighthouse.png")
+    assert (download.mime_type, download.size_bytes) == ("image/png", 5)
+    assert "content" not in repr(download)
     api, storage = calls
     assert api.url == f"{API}/assets/a1/download"
     assert api.headers["authorization"] == "Bearer zg_test_key"
@@ -270,9 +274,10 @@ def test_streams_each_download_into_a_path_or_a_file_from_a_new_link(
         httpx.Response(200, content=HELLO),
     )
     path = tmp_path / "lighthouse.png"
-    run(zerogen.assets.download("a1", path))
     file = io.BytesIO()
-    run(zerogen.assets.download("a1", file))
+    info = DownloadInfo("a1", "lighthouse.png", "image/png", 5)
+    assert run(zerogen.assets.download("a1", path)) == info
+    assert run(zerogen.assets.download("a1", file)) == info
     assert path.read_bytes() == HELLO
     assert file.getvalue() == HELLO
     assert [call.url for call in calls] == [
@@ -292,7 +297,7 @@ def test_reads_a_new_link_once_when_storage_refuses_an_expired_one(
         json_response(download_link(RESIGNED)),
         httpx.Response(200, content=HELLO),
     )
-    assert run(zerogen.assets.download("a1")) == HELLO
+    assert run(zerogen.assets.download("a1")).content == HELLO
     assert [call.url for call in calls][1::2] == [SIGNED, RESIGNED]
 
 
@@ -332,6 +337,71 @@ def test_removes_a_partial_file_when_the_download_stops(
     error = raises(ZeroGenConnectionError, lambda: zerogen.assets.download("a1", path))
     assert str(error) == "The download stopped before it finished."
     assert not path.exists()
+
+
+def test_saves_into_a_directory_under_a_free_name_without_overwriting(
+    make_client: MakeClient, tmp_path: Path
+) -> None:
+    zerogen, calls = make_client(
+        json_response(download_link(SIGNED)),
+        httpx.Response(200, content=HELLO),
+        json_response(download_link(RESIGNED)),
+        httpx.Response(200, content=HELLO),
+    )
+    (tmp_path / "lighthouse.png").write_bytes(b"original")
+    first = run(zerogen.assets.download_to("a1", tmp_path))
+    second = run(zerogen.assets.download_to("a1", str(tmp_path)))
+    assert first == SavedDownload(
+        "a1", "lighthouse.png", "image/png", 5, str(tmp_path / "lighthouse (1).png")
+    )
+    assert second.path == str(tmp_path / "lighthouse (2).png")
+    assert (tmp_path / "lighthouse.png").read_bytes() == b"original"
+    assert Path(first.path).read_bytes() == Path(second.path).read_bytes() == HELLO
+    assert [call.url for call in calls][1::2] == [SIGNED, RESIGNED]
+
+
+def test_saves_an_untrusted_filename_inside_the_directory(
+    make_client: MakeClient, tmp_path: Path
+) -> None:
+    link = {**download_link(SIGNED), "filename": "../../outside.png"}
+    zerogen, _ = make_client(json_response(link), httpx.Response(200, content=HELLO))
+    saved = run(zerogen.assets.download_to("a1", tmp_path))
+    assert saved.filename == "../../outside.png"
+    assert saved.path == str(tmp_path / "_.._outside.png")
+    assert [path.name for path in tmp_path.iterdir()] == ["_.._outside.png"]
+
+
+def test_removes_a_file_it_saved_into_a_directory_when_the_download_stops(
+    make_client: MakeClient, tmp_path: Path
+) -> None:
+    zerogen, _ = make_client(
+        json_response(download_link(SIGNED)), httpx.Response(200, stream=Broken())
+    )
+    raises(ZeroGenConnectionError, lambda: zerogen.assets.download_to("a1", tmp_path))
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("filename", "saved_as"),
+    [
+        ("lighthouse.png", "lighthouse.png"),
+        ("../../etc/passwd", "_.._etc_passwd"),
+        ("C:\\Windows\\win.ini", "C__Windows_win.ini"),
+        ('a<b>c:d"e|f?g*h.png', "a_b_c_d_e_f_g_h.png"),
+        ("tab\tand\x00null.png", "tab_and_null.png"),
+        ("  .hidden.png. ", "hidden.png"),
+        ("CON.png", "_CON.png"),
+        ("lpt1", "_lpt1"),
+        ("console.png", "console.png"),
+        ("", "a1.png"),
+        ("...", "a1.png"),
+        ("x" * 300 + ".png", "x" * 236 + ".png"),
+        ("é" * 200 + ".png", "é" * 118 + ".png"),
+        ("notes." + "y" * 40, "notes." + "y" * 40),
+    ],
+)
+def test_makes_a_safe_name_from_the_files_untrusted_filename(filename: str, saved_as: str) -> None:
+    assert assets_module._safe_name(filename, "a1", "image/png") == saved_as
 
 
 @pytest.mark.usefixtures("no_backoff")

@@ -50,6 +50,22 @@ def test_sends_get_requests_with_a_query_string_and_no_idempotency_key(
     assert "idempotency-key" not in calls[0].headers
 
 
+def test_names_the_callers_app_before_itself_in_the_user_agent(make_client: MakeClient) -> None:
+    zerogen, calls = make_client(json_response(ME), user_agent=" zerogen-nodes/0.1 (ComfyUI) ")
+    run(zerogen.me())
+    assert calls[0].headers["user-agent"] == (
+        f"zerogen-nodes/0.1 (ComfyUI) zerogen-python/{__version__}"
+    )
+
+
+@pytest.mark.parametrize("client_class", [ZeroGen, AsyncZeroGen])
+def test_refuses_a_user_agent_with_a_line_break(
+    client_class: type[ZeroGen] | type[AsyncZeroGen],
+) -> None:
+    with pytest.raises(ValueError, match="user_agent"):
+        client_class(api_key="zg_test_key", user_agent="app/1\r\nX-Injected: 1")
+
+
 def test_gives_each_post_an_idempotency_key_and_sends_no_body_when_it_has_none(
     make_client: MakeClient,
 ) -> None:

@@ -26,8 +26,14 @@ from zerogen._client import Query
 SPEC: dict[str, Any] = json.loads(
     (Path(__file__).parent.parent / "openapi.json").read_text(encoding="utf-8")
 )
-COMPOSITE = {"runs.create_and_wait", "uploads.upload", "assets.download"}
+COMPOSITE = {"runs.create_and_wait", "uploads.upload", "assets.download", "assets.download_to"}
 """Methods made of other methods, which this checks instead."""
+WAITS = {"wait", "poll"}
+"""Arguments that send `Prefer: wait`."""
+CLIENT_SIDE = {"on_update", "cancel"}
+"""Arguments that change only what the client does, not what it sends."""
+SYNC_ONLY = {"runs.wait_for": {"cancel"}}
+"""Arguments only `ZeroGen` takes, because an `AsyncZeroGen` task can be cancelled."""
 UNTYPED = {"models.list operation"}
 """Arguments the spec gives an enum that the method takes as any string, because the enum
 grows with each new model operation."""
@@ -163,7 +169,7 @@ def capture(client: ZeroGen | AsyncZeroGen, target: str) -> tuple[Sent, dict[str
     kwargs: dict[str, Any] = {}
     body: str | None = None
     for param in inspect.signature(method).parameters.values():
-        if param.kind is param.VAR_KEYWORD:
+        if param.kind is param.VAR_KEYWORD or param.name in CLIENT_SIDE:
             continue
         if param.name == "body":
             body = hints["body"].__name__
@@ -226,13 +232,13 @@ def test_each_method_sends_its_operation_as_the_spec_defines_it(kind: str, targe
     sent, kwargs = capture(client(kind), target)
     op = operation_for(sent)
     assert sent.query == set(op.query), op.id
-    assert ("wait" in kwargs) <= sent.waits <= ("Prefer" in op.headers), op.id
+    assert bool(WAITS & kwargs.keys()) <= sent.waits <= ("Prefer" in op.headers), op.id
     assert sent.body == op.body, op.id
     assert sent.response == op.response, op.id
     if op.method == "POST":
         assert "Idempotency-Key" in op.headers, op.id
     for name, hint in kwargs.items():
-        if name == "wait":
+        if name in WAITS:
             continue
         wire = next(key for key in op.query if snake(key) == name)
         schema = op.query[wire]
@@ -260,8 +266,9 @@ def test_both_clients_have_the_same_methods() -> None:
         other = resources(AsyncZeroGen)[name]
         assert methods(cls) == methods(other), name
         for method in methods(cls):
+            sync_only = SYNC_ONLY.get(f"{name}.{method}", set())
             sync = inspect.signature(getattr(cls, method)).parameters
             asynchronous = inspect.signature(getattr(other, method)).parameters
-            assert [(p.name, p.kind, p.default) for p in sync.values()] == [
-                (p.name, p.kind, p.default) for p in asynchronous.values()
-            ], f"{name}.{method}"
+            assert [
+                (p.name, p.kind, p.default) for p in sync.values() if p.name not in sync_only
+            ] == [(p.name, p.kind, p.default) for p in asynchronous.values()], f"{name}.{method}"
