@@ -1,14 +1,19 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Any
 
 import httpx
 import pytest
 from conftest import MakeClient
 from fakes import (
+    Fake,
     api_error,
     collect,
     first_page,
@@ -22,7 +27,8 @@ from fakes import (
     upload,
 )
 
-from zerogen import has_ended
+from zerogen import AsyncZeroGen, WaitCancelledError, ZeroGen, ZeroGenError, has_ended
+from zerogen.types import Run
 
 HELLO = b"hello"
 HELLO_SHA256 = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
@@ -75,6 +81,117 @@ def test_create_and_wait_returns_a_run_that_ended_within_the_create(
     assert ended.error is not None
     assert ended.error.code == "provider_error"
     assert len(calls) == 1
+
+
+def test_waits_with_each_read_held_for_the_poll_and_reports_every_run(
+    make_client: MakeClient,
+) -> None:
+    zerogen, calls = make_client(
+        json_response(run_body(status="queued")),
+        json_response(run_body(status="running")),
+        json_response(run_body(status="succeeded")),
+    )
+    updates: list[Run] = []
+    ended = run(zerogen.runs.wait_for("g1", poll=5, on_update=updates.append))
+    assert ended.status == "succeeded"
+    assert [update.status for update in updates] == ["queued", "running", "succeeded"]
+    assert updates[-1] is ended
+    assert [call.headers["prefer"] for call in calls] == ["wait=5"] * 3
+    assert calls[0].timeout["read"] == 125
+
+
+def test_awaits_an_async_update_callback() -> None:
+    fake = Fake(
+        [json_response(run_body(status="running")), json_response(run_body("g1", "failed"))]
+    )
+    zerogen = AsyncZeroGen(
+        api_key="zg_test_key",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(fake.handle)),
+    )
+    statuses: list[str] = []
+
+    async def report(update: Run) -> None:
+        await asyncio.sleep(0)
+        statuses.append(update.status)
+
+    ended = asyncio.run(zerogen.runs.wait_for("g1", on_update=report))
+    assert ended.status == "failed"
+    assert statuses == ["running", "failed"]
+    assert fake.calls[0].headers["prefer"] == "wait=60"
+
+
+@pytest.mark.parametrize("poll", [0, 61])
+def test_refuses_a_poll_outside_1_to_60_seconds(make_client: MakeClient, poll: int) -> None:
+    zerogen, calls = make_client()
+    error = raises(ValueError, lambda: zerogen.runs.wait_for("g1", poll=poll))
+    assert str(error) == "poll takes 1 to 60 seconds."
+    assert calls == []
+
+
+def held_read(release: threading.Event, status: str = "running") -> Any:
+    """A read the API holds until `release` is set, as it holds a long poll."""
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        release.wait(10)
+        return json_response(run_body(status=status))
+
+    return reply
+
+
+def test_stops_waiting_as_soon_as_the_cancel_event_is_set() -> None:
+    release = threading.Event()
+    fake = Fake([held_read(release)])
+    zerogen = ZeroGen(
+        api_key="zg_test_key", http_client=httpx.Client(transport=httpx.MockTransport(fake.handle))
+    )
+    cancel = threading.Event()
+    threading.Timer(0.1, cancel.set).start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(WaitCancelledError) as caught:
+            zerogen.runs.wait_for("g1", cancel=cancel)
+        assert time.monotonic() - started < 2
+    finally:
+        release.set()
+    assert caught.value.run_id == "g1"
+    assert str(caught.value) == "Stopped waiting for run g1; it keeps running."
+    assert len(fake.calls) == 1
+
+
+def test_doesnt_read_once_the_cancel_event_is_set() -> None:
+    fake = Fake([json_response(run_body(status="running"))])
+    zerogen = ZeroGen(
+        api_key="zg_test_key", http_client=httpx.Client(transport=httpx.MockTransport(fake.handle))
+    )
+    cancel = threading.Event()
+    updates: list[Run] = []
+
+    def stop(update: Run) -> None:
+        updates.append(update)
+        cancel.set()
+
+    with pytest.raises(WaitCancelledError):
+        zerogen.runs.wait_for("g1", poll=1, on_update=stop, cancel=cancel)
+    assert [update.status for update in updates] == ["running"]
+    assert len(fake.calls) == 1
+
+
+def test_waits_out_a_run_and_reports_errors_with_a_cancel_event_never_set() -> None:
+    fake = Fake(
+        [
+            json_response(run_body(status="running")),
+            json_response(run_body(status="succeeded")),
+            api_error(404, "not_found"),
+        ]
+    )
+    zerogen = ZeroGen(
+        api_key="zg_test_key", http_client=httpx.Client(transport=httpx.MockTransport(fake.handle))
+    )
+    cancel = threading.Event()
+    assert zerogen.runs.wait_for("g1", cancel=cancel).status == "succeeded"
+    with pytest.raises(ZeroGenError) as caught:
+        zerogen.runs.wait_for("g2", cancel=cancel)
+    assert caught.value.code == "not_found"
 
 
 def test_reads_statuses_and_fields_it_doesnt_know_yet(make_client: MakeClient) -> None:
