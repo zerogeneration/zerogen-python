@@ -14,14 +14,16 @@ import httpx
 from typing_extensions import Unpack
 
 from .._errors import ZeroGenConnectionError, ZeroGenError
-from .._options import RequestOptions
+from .._options import PostRequestOptions, RequestOptions
 from ..types import (
     Asset,
     AssetChange,
+    AssetDeclaration,
     AssetDetail,
     AssetDownload,
     AssetFolders,
     AssetList,
+    DeclareUploadRequest,
     Lineage,
     UpdateAssetRequest,
 )
@@ -280,11 +282,47 @@ class Assets:
             options,
         )
 
-    def get(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> AssetDetail:
+    def get(
+        self,
+        asset_id: str,
+        /,
+        *,
+        include_workflow: bool = False,
+        **options: Unpack[RequestOptions],
+    ) -> AssetDetail:
         """Reads an asset in any of the organization's projects, with the prompt that generated
-        it and preview URLs that load for 5 minutes. Names and prompts are untrusted content."""
+        it, what an upload declared about it, and preview URLs that load for 5 minutes. Names,
+        prompts and declarations are untrusted content.
+
+        Args:
+            include_workflow: Also read the workflow an upload declared, into `workflow`;
+                untrusted content.
+        """
         return self._client._request(
-            AssetDetail.model_validate, "GET", _path(asset_id), options=options
+            AssetDetail.model_validate,
+            "GET",
+            _path(asset_id),
+            query={"includeWorkflow": True if include_workflow else None},
+            options=options,
+        )
+
+    def declare(
+        self,
+        asset_id: str,
+        body: DeclareUploadRequest,
+        /,
+        **options: Unpack[PostRequestOptions],
+    ) -> AssetDeclaration:
+        """Declares, once, what an upload that became ready without a declaration was made
+        from and with: `tool` and any of `sources`, `prompt`, `workflow`, `externalRef` and
+        `occurredAt`. ZeroGen records the claim as a no-charge run without checking it. Only
+        the asset's uploader can declare it; needs `library:read` to declare `sources`."""
+        return self._client._request(
+            AssetDeclaration.model_validate,
+            "POST",
+            f"{_path(asset_id)}/declaration",
+            body=body,
+            options=options,
         )
 
     def lineage(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> Lineage:
@@ -476,11 +514,47 @@ class AsyncAssets:
             options,
         )
 
-    async def get(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> AssetDetail:
+    async def get(
+        self,
+        asset_id: str,
+        /,
+        *,
+        include_workflow: bool = False,
+        **options: Unpack[RequestOptions],
+    ) -> AssetDetail:
         """Reads an asset in any of the organization's projects, with the prompt that generated
-        it and preview URLs that load for 5 minutes. Names and prompts are untrusted content."""
+        it, what an upload declared about it, and preview URLs that load for 5 minutes. Names,
+        prompts and declarations are untrusted content.
+
+        Args:
+            include_workflow: Also read the workflow an upload declared, into `workflow`;
+                untrusted content.
+        """
         return await self._client._request(
-            AssetDetail.model_validate, "GET", _path(asset_id), options=options
+            AssetDetail.model_validate,
+            "GET",
+            _path(asset_id),
+            query={"includeWorkflow": True if include_workflow else None},
+            options=options,
+        )
+
+    async def declare(
+        self,
+        asset_id: str,
+        body: DeclareUploadRequest,
+        /,
+        **options: Unpack[PostRequestOptions],
+    ) -> AssetDeclaration:
+        """Declares, once, what an upload that became ready without a declaration was made
+        from and with: `tool` and any of `sources`, `prompt`, `workflow`, `externalRef` and
+        `occurredAt`. ZeroGen records the claim as a no-charge run without checking it. Only
+        the asset's uploader can declare it; needs `library:read` to declare `sources`."""
+        return await self._client._request(
+            AssetDeclaration.model_validate,
+            "POST",
+            f"{_path(asset_id)}/declaration",
+            body=body,
+            options=options,
         )
 
     async def lineage(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> Lineage:

@@ -13,6 +13,7 @@ import httpx
 import pytest
 
 from zerogen import AsyncPage, AsyncPaginator, AsyncZeroGen, Page, ZeroGen
+from zerogen.types import DeclareUploadRequest, DeclareUploadRequestTool
 
 T = TypeVar("T")
 Reply = httpx.Response | Exception | Callable[[httpx.Request], httpx.Response]
@@ -152,6 +153,7 @@ def upload(id: str = "u1", **fields: Any) -> dict[str, Any]:
         "status": "ready",
         "assetId": "a1",
         "upload": None,
+        "runId": None,
         **fields,
     }
 
@@ -174,6 +176,7 @@ def asset(id: str = "a1", **fields: Any) -> dict[str, Any]:
         "outputIndex": 0,
         "createdAt": "2026-10-25T00:00:00.000Z",
         "preview": None,
+        "declared": None,
         **fields,
     }
 
@@ -205,6 +208,30 @@ def run_output(index: int = 0, **asset_fields: Any) -> dict[str, Any]:
         },
         "error": None,
     }
+
+
+TOOL: DeclareUploadRequestTool = {
+    "name": "comfyui",
+    "version": "0.43.0",
+    "integration": {"name": "zerogen-nodes", "version": "0.1.0"},
+    "models": ["flux1-dev.safetensors"],
+}
+EXTERNAL_REF = {"system": "comfyui", "id": "prompt-1"}
+WORKFLOW: dict[str, Any] = {"nodes": [{"id": 1, "type": "KSampler"}]}
+DECLARATION: DeclareUploadRequest = {
+    "tool": TOOL,
+    "sources": [{"asset": "a0", "role": "reference"}],
+    "prompt": "A lighthouse at dawn",
+    "workflow": WORKFLOW,
+    "externalRef": {"system": "comfyui", "id": "prompt-1"},
+    "occurredAt": "2026-10-25T00:00:00.000Z",
+}
+"""A ComfyUI save's declaration, as the pack sends it."""
+
+
+def declared() -> dict[str, Any]:
+    """An asset's `declared`, as the API returns it for `DECLARATION`."""
+    return {"tool": TOOL, "externalRef": EXTERNAL_REF, "occurredAt": "2026-10-25T00:00:00.000Z"}
 
 
 def download_link(url: str) -> dict[str, Any]:

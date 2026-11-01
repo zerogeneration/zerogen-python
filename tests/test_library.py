@@ -12,10 +12,13 @@ import httpx
 import pytest
 from conftest import MakeClient
 from fakes import (
+    DECLARATION,
     FOLDER,
     LABEL,
+    WORKFLOW,
     Client,
     asset,
+    declared,
     download_link,
     first_page,
     json_response,
@@ -48,6 +51,18 @@ ROUTES: list[tuple[Callable[[Client], object], str, Any, dict[str, Any]]] = [
         "GET /assets/a1",
         None,
         asset(prompt="A lighthouse", promptTruncated=False),
+    ),
+    (
+        lambda z: z.assets.get("a1", include_workflow=True),
+        "GET /assets/a1?includeWorkflow=true",
+        None,
+        asset(prompt="A lighthouse", promptTruncated=False, workflow={"nodes": []}),
+    ),
+    (
+        lambda z: z.assets.declare("a1", DECLARATION),
+        "POST /assets/a1/declaration",
+        DECLARATION,
+        {"assetId": "a1", "runId": "g9", "asset": asset(runId="g9", declared=declared())},
     ),
     (lambda z: z.assets.lineage("a1"), "GET /assets/a1/lineage", None, LINEAGE),
     (
@@ -227,6 +242,34 @@ def test_reads_each_assets_preview_or_null_until_its_made(make_client: MakeClien
     assert detail.preview is not None
     assert detail.preview.image512_url == still["image512Url"]
     assert detail.preview.video_url is None
+    assert detail.declared is None
+
+
+def test_reads_what_an_upload_declared_and_its_workflow_when_asked(
+    make_client: MakeClient,
+) -> None:
+    detail = asset(
+        origin="upload",
+        runId="g9",
+        prompt="A lighthouse at dawn",
+        promptTruncated=False,
+        declared=declared(),
+        workflow=WORKFLOW,
+    )
+    edge = {"assetId": "a1", "sourceAssetId": "a0", "role": "reference", "kind": "image"}
+    lineage = {**LINEAGE, "edges": [{**edge, "declared": True}]}
+    zerogen, calls = make_client(json_response(detail), json_response(lineage))
+    read = run(zerogen.assets.get("a1", include_workflow=True))
+    assert read.declared is not None
+    assert read.declared.tool.name == "comfyui"
+    assert read.declared.tool.integration is not None
+    assert read.declared.tool.integration.name == "zerogen-nodes"
+    assert read.declared.external_ref is not None
+    assert read.declared.external_ref.id == "prompt-1"
+    assert read.declared.occurred_at == datetime(2026, 10, 25, tzinfo=timezone.utc)
+    assert read.workflow == WORKFLOW
+    assert run(zerogen.assets.lineage("a1")).edges[0].declared
+    assert calls[0].url == f"{API}/assets/a1?includeWorkflow=true"
 
 
 def test_downloads_from_storage_without_the_api_key_or_any_of_the_clients_headers(

@@ -11,8 +11,9 @@ import anyio.to_thread
 from pydantic import Field
 from typing_extensions import Unpack
 
+from .._errors import ZeroGenError
 from .._options import PostRequestOptions, RequestOptions
-from ..types import CreateUploadRequest, Upload
+from ..types import CreateUploadRequest, CreateUploadRequestNaming, DeclareUploadRequest, Upload
 
 if TYPE_CHECKING:
     from .._client import AsyncZeroGen, ZeroGen
@@ -52,6 +53,10 @@ class ReadyUpload(Upload):
 
     status: Literal["ready"]  # pyright: ignore[reportIncompatibleVariableOverride]
     asset_id: str = Field(alias="assetId")  # pyright: ignore[reportIncompatibleVariableOverride]
+    declaration_recorded: bool = False
+    """Whether ZeroGen recorded the `declaration` given to `uploads.upload`: with the upload, or
+    afterward on the identical file the project already had. False without a declaration, or
+    when that file already had one, was made in ZeroGen, or was uploaded by someone else."""
 
 
 class _File:
@@ -122,6 +127,8 @@ def _create_body(
     sha256: str,
     project_id: str | None,
     folder_id: str | None,
+    declaration: DeclareUploadRequest | None,
+    naming: CreateUploadRequestNaming | None,
 ) -> dict[str, object]:
     name = filename or file.name
     if not name:
@@ -139,7 +146,21 @@ def _create_body(
         body["projectId"] = project_id
     if folder_id is not None:
         body["folderId"] = folder_id
+    if declaration is not None:
+        body.update(declaration)
+    if naming is not None:
+        body["naming"] = naming
     return body
+
+
+def _refused(error: ZeroGenError) -> bool:
+    """Whether the API refused a later declaration because the asset can't take one: it has a
+    declaration or was made in ZeroGen, someone else uploaded it, or a declared source is the
+    asset or was made from it. The upload passed the scope checks, so `permission_denied`
+    means the uploader."""
+    return (error.status, error.code) in {(403, "permission_denied"), (409, "invalid_state")} or (
+        error.code == "validation_failed" and error.param == "sources"
+    )
 
 
 def _ready(upload: Upload) -> ReadyUpload:
@@ -173,6 +194,8 @@ class Uploads:
         project_id: str | None = None,
         folder_id: str | None = None,
         sha256: str | None = None,
+        declaration: DeclareUploadRequest | None = None,
+        naming: CreateUploadRequestNaming | None = None,
         **options: Unpack[RequestOptions],
     ) -> ReadyUpload:
         """Uploads a file into the Library and returns it when it's ready to use as a run input,
@@ -187,6 +210,13 @@ class Uploads:
             folder_id: A folder in that project to add the asset to.
             sha256: The file's SHA-256 digest in lowercase hex, computed when omitted. An
                 identical file already in the project is reused instead of uploaded again.
+            declaration: What the file was made from and with, which ZeroGen records as a
+                no-charge run without checking it: `tool` and any of `sources`, `prompt`,
+                `workflow`, `externalRef` and `occurredAt`. When the project already has the
+                file, the upload declares that asset instead, if it has no declaration and you
+                uploaded it. `declaration_recorded` says whether ZeroGen recorded it.
+            naming: Names a new asset with a naming preset, as a run's outputs are named.
+                Needs `declaration`.
         """
         source = _File(file)
         body = _create_body(
@@ -196,6 +226,8 @@ class Uploads:
             sha256 or source.sha256(),
             project_id,
             folder_id,
+            declaration,
+            naming,
         )
         upload = self._client._request(
             Upload.model_validate, "POST", "/uploads", body=body, options=options
@@ -211,7 +243,24 @@ class Uploads:
                 max_retries=options.get("max_retries", self._client.max_retries),
             )
             upload = self.complete(upload.id, **options)
-        return _ready(upload)
+        ready = _ready(upload)
+        if declaration is None:
+            return ready
+        recorded = ready.run_id is not None or self._declare(ready.asset_id, declaration, options)
+        return ready.model_copy(update={"declaration_recorded": recorded})
+
+    def _declare(
+        self, asset_id: str, declaration: DeclareUploadRequest, options: RequestOptions
+    ) -> bool:
+        """Declares the asset an identical upload returned, and returns whether the API
+        recorded it."""
+        try:
+            self._client.assets.declare(asset_id, declaration, **options)
+        except ZeroGenError as error:
+            if _refused(error):
+                return False
+            raise
+        return True
 
     def create(self, body: CreateUploadRequest, /, **options: Unpack[PostRequestOptions]) -> Upload:
         """Starts an upload. `PUT` the file's bytes to the returned target, then complete it."""
@@ -245,6 +294,8 @@ class AsyncUploads:
         project_id: str | None = None,
         folder_id: str | None = None,
         sha256: str | None = None,
+        declaration: DeclareUploadRequest | None = None,
+        naming: CreateUploadRequestNaming | None = None,
         **options: Unpack[RequestOptions],
     ) -> ReadyUpload:
         """Uploads a file into the Library and returns it when it's ready to use as a run input,
@@ -260,6 +311,13 @@ class AsyncUploads:
             sha256: The file's SHA-256 digest in lowercase hex, computed in a worker thread when
                 omitted. An identical file already in the project is reused instead of uploaded
                 again.
+            declaration: What the file was made from and with, which ZeroGen records as a
+                no-charge run without checking it: `tool` and any of `sources`, `prompt`,
+                `workflow`, `externalRef` and `occurredAt`. When the project already has the
+                file, the upload declares that asset instead, if it has no declaration and you
+                uploaded it. `declaration_recorded` says whether ZeroGen recorded it.
+            naming: Names a new asset with a naming preset, as a run's outputs are named.
+                Needs `declaration`.
         """
         source = _File(file)
         body = _create_body(
@@ -269,6 +327,8 @@ class AsyncUploads:
             sha256 or await anyio.to_thread.run_sync(source.sha256),
             project_id,
             folder_id,
+            declaration,
+            naming,
         )
         upload = await self._client._request(
             Upload.model_validate, "POST", "/uploads", body=body, options=options
@@ -284,7 +344,26 @@ class AsyncUploads:
                 max_retries=options.get("max_retries", self._client.max_retries),
             )
             upload = await self.complete(upload.id, **options)
-        return _ready(upload)
+        ready = _ready(upload)
+        if declaration is None:
+            return ready
+        recorded = ready.run_id is not None or await self._declare(
+            ready.asset_id, declaration, options
+        )
+        return ready.model_copy(update={"declaration_recorded": recorded})
+
+    async def _declare(
+        self, asset_id: str, declaration: DeclareUploadRequest, options: RequestOptions
+    ) -> bool:
+        """Declares the asset an identical upload returned, and returns whether the API
+        recorded it."""
+        try:
+            await self._client.assets.declare(asset_id, declaration, **options)
+        except ZeroGenError as error:
+            if _refused(error):
+                return False
+            raise
+        return True
 
     async def create(
         self, body: CreateUploadRequest, /, **options: Unpack[PostRequestOptions]

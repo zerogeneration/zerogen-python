@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 from typing_extensions import NotRequired, TypedDict
 
 
@@ -117,6 +117,75 @@ class CreateRunRequest(TypedDict, closed=True):
     naming: NotRequired[CreateRunRequestNaming]
 
 
+class CreateUploadRequestSource(TypedDict, closed=True):
+    asset: str
+    """
+    An existing readable Library asset; this claim is not verified.
+    """
+    role: NotRequired[
+        Literal[
+            "source",
+            "initial-frame",
+            "end-frame",
+            "keyframe",
+            "reference",
+            "face-reference",
+            "identity",
+            "driver",
+            "mask",
+        ]
+    ]
+
+
+class CreateUploadRequestToolIntegration(TypedDict, closed=True):
+    name: str
+    version: NotRequired[str]
+
+
+CreateUploadRequestToolModel: TypeAlias = str
+
+
+class CreateUploadRequestTool(TypedDict, closed=True):
+    name: str
+    version: NotRequired[str]
+    integration: NotRequired[CreateUploadRequestToolIntegration]
+    models: NotRequired[list[CreateUploadRequestToolModel]]
+
+
+class CreateUploadRequestExternalRef(TypedDict, closed=True):
+    system: str
+    id: str
+
+
+class CreateUploadRequestNamingDefinitionField(TypedDict, closed=True):
+    id: str
+    kind: Literal["shot", "take", "artist", "date", "version", "text", "folder"]
+    label: str
+    prefix: str
+    padding: int
+    step: int
+    sequence: Literal["number", "letters"]
+    artistFormat: Literal["initials", "compact", "hyphen", "underscore", "custom"]
+    artistNameStyle: NotRequired[Literal["full", "initials"]]
+    artistCase: NotRequired[Literal["preserve", "lower", "upper", "title"]]
+    artistSeparator: NotRequired[str]
+    dateFormat: str
+    defaultValue: str
+    folderRemoveSpaces: NotRequired[bool]
+
+
+class CreateUploadRequestNamingDefinition(TypedDict, closed=True):
+    delimiter: str
+    fields: list[CreateUploadRequestNamingDefinitionField]
+
+
+class CreateUploadRequestNaming(TypedDict, closed=True):
+    presetId: str | None
+    definition: CreateUploadRequestNamingDefinition
+    values: dict[str, str | int]
+    version: NotRequired[int]
+
+
 class CreateUploadRequest(TypedDict, closed=True):
     projectId: NotRequired[str]
     """
@@ -153,6 +222,77 @@ class CreateUploadRequest(TypedDict, closed=True):
     """
     Lowercase hex SHA-256 of the file, to reuse an identical file in the project.
     """
+    sources: NotRequired[list[CreateUploadRequestSource]]
+    """
+    Untrusted claims about the readable Library sources used outside ZeroGen.
+    """
+    tool: NotRequired[CreateUploadRequestTool]
+    workflow: NotRequired[dict[str, str | float | bool | list[Any] | dict[str, Any] | None]]
+    """
+    Untrusted JSON workflow, limited to 262144 serialized UTF-8 bytes.
+    """
+    prompt: NotRequired[str]
+    externalRef: NotRequired[CreateUploadRequestExternalRef]
+    occurredAt: NotRequired[str]
+    naming: NotRequired[CreateUploadRequestNaming]
+    """
+    An untrusted external naming claim; it is not verification.
+    """
+
+
+class DeclareUploadRequestSource(TypedDict, closed=True):
+    asset: str
+    """
+    An existing readable Library asset; this claim is not verified.
+    """
+    role: NotRequired[
+        Literal[
+            "source",
+            "initial-frame",
+            "end-frame",
+            "keyframe",
+            "reference",
+            "face-reference",
+            "identity",
+            "driver",
+            "mask",
+        ]
+    ]
+
+
+class DeclareUploadRequestToolIntegration(TypedDict, closed=True):
+    name: str
+    version: NotRequired[str]
+
+
+DeclareUploadRequestToolModel: TypeAlias = str
+
+
+class DeclareUploadRequestTool(TypedDict, closed=True):
+    name: str
+    version: NotRequired[str]
+    integration: NotRequired[DeclareUploadRequestToolIntegration]
+    models: NotRequired[list[DeclareUploadRequestToolModel]]
+
+
+class DeclareUploadRequestExternalRef(TypedDict, closed=True):
+    system: str
+    id: str
+
+
+class DeclareUploadRequest(TypedDict, closed=True):
+    sources: NotRequired[list[DeclareUploadRequestSource]]
+    """
+    Untrusted claims about the readable Library sources used outside ZeroGen.
+    """
+    tool: DeclareUploadRequestTool
+    workflow: NotRequired[dict[str, str | float | bool | list[Any] | dict[str, Any] | None]]
+    """
+    Untrusted JSON workflow, limited to 262144 serialized UTF-8 bytes.
+    """
+    prompt: NotRequired[str]
+    externalRef: NotRequired[DeclareUploadRequestExternalRef]
+    occurredAt: NotRequired[str]
 
 
 class UpdateAssetRequest(TypedDict, closed=True):
