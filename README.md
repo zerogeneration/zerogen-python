@@ -111,6 +111,18 @@ zerogen.folders.add_assets(project.id, folder.id, {"assetIds": [a.id for a in vi
 List filters that take several values, such as `label_id` and `resolution`,
 take a list.
 
+To file into a folder path, such as a shot's `SH010/anim`, use
+`folders.ensure_path`. It returns the last folder, creating each one on the
+way that isn't there yet, and reuses a folder of the same name, so clients
+saving into the same path at once share its folders:
+
+```python
+anim = zerogen.folders.ensure_path(project.id, "SH010/anim")
+```
+
+A string path splits on `/`. Folder names can contain `/`, so pass a list,
+such as `["2026/11", "renders"]`, when one does.
+
 To download an asset's original file, use `assets.download`. It returns the
 file's bytes, or streams them into a path or a binary file object:
 

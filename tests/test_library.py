@@ -160,6 +160,33 @@ def test_sends_each_library_request_to_its_route(
     assert ("idempotency-key" in calls[0].headers) == (method == "POST")
 
 
+def test_ensure_path_finds_or_creates_each_folder_in_turn(make_client: MakeClient) -> None:
+    zerogen, calls = make_client(
+        json_response(FOLDER), json_response({**FOLDER, "id": "f2", "parentId": "f1"}, 201)
+    )
+    folder = run(zerogen.folders.ensure_path("p1", "/Shots//anim/"))
+    assert (folder.id, folder.parent_id) == ("f2", "f1")
+    assert [call.json() for call in calls] == [
+        {"name": "Shots", "parentId": None, "reuseExisting": True},
+        {"name": "anim", "parentId": "f1", "reuseExisting": True},
+    ]
+    assert {call.url for call in calls} == {f"{API}/projects/p1/folders"}
+    assert len({call.headers["idempotency-key"] for call in calls}) == 2
+
+
+def test_ensure_path_takes_names_that_contain_a_slash_as_a_list(make_client: MakeClient) -> None:
+    zerogen, calls = make_client(json_response({**FOLDER, "id": "f2", "parentId": "f0"}))
+    run(zerogen.folders.ensure_path("p1", ["2026/11/01"], parent_id="f0"))
+    assert calls[0].json() == {"name": "2026/11/01", "parentId": "f0", "reuseExisting": True}
+
+
+@pytest.mark.parametrize("path", ["", "/", []])
+def test_ensure_path_needs_a_folder_name(make_client: MakeClient, path: str | list[str]) -> None:
+    zerogen, calls = make_client()
+    raises(ValueError, lambda: zerogen.folders.ensure_path("p1", path))
+    assert calls == []
+
+
 def test_lists_library_collections_with_their_filters(make_client: MakeClient) -> None:
     zerogen, calls = make_client(*[json_response(page()) for _ in range(6)])
     first_page(zerogen.projects.list())

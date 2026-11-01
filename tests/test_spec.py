@@ -26,7 +26,7 @@ from zerogen._client import Query
 SPEC: dict[str, Any] = json.loads(
     (Path(__file__).parent.parent / "openapi.json").read_text(encoding="utf-8")
 )
-COMPOSITE = {"runs.create_and_wait", "uploads.upload", "assets.download"}
+COMPOSITE = {"runs.create_and_wait", "uploads.upload", "assets.download", "folders.ensure_path"}
 """Methods made of other methods, which this checks instead."""
 UNTYPED = {"models.list operation"}
 """Arguments the spec gives an enum that the method takes as any string, because the enum
