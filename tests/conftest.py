@@ -15,6 +15,7 @@ class MakeClient(Protocol):
         *replies: Reply,
         max_retries: int = 2,
         default_headers: dict[str, str] | None = None,
+        user_agent: str | None = None,
         http_options: dict[str, Any] | None = None,
     ) -> tuple[Client, list[Call]]: ...
 
@@ -27,6 +28,7 @@ def make_client(request: pytest.FixtureRequest) -> MakeClient:
         *replies: Reply,
         max_retries: int = 2,
         default_headers: dict[str, str] | None = None,
+        user_agent: str | None = None,
         http_options: dict[str, Any] | None = None,
     ) -> tuple[Client, list[Call]]:
         fake = Fake(replies)
@@ -36,6 +38,7 @@ def make_client(request: pytest.FixtureRequest) -> MakeClient:
                 api_key="zg_test_key",
                 max_retries=max_retries,
                 default_headers=default_headers,
+                user_agent=user_agent,
                 http_client=httpx.Client(transport=transport, **(http_options or {})),
             )
         else:
@@ -43,6 +46,7 @@ def make_client(request: pytest.FixtureRequest) -> MakeClient:
                 api_key="zg_test_key",
                 max_retries=max_retries,
                 default_headers=default_headers,
+                user_agent=user_agent,
                 http_client=httpx.AsyncClient(transport=transport, **(http_options or {})),
             )
         return client, fake.calls

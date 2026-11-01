@@ -2,8 +2,23 @@
 
 ## Unreleased
 
-This release needs the API that reuses folders by name.
+This release breaks compatibility with 0.2: `assets.download` returns a
+`Download` instead of the file's bytes, which are now its `content`. This release needs the API that reuses folders by name.
 
+- Downloads return the file's `filename`, `mime_type` and `size_bytes`.
+  `assets.download` returns a `Download`, with the bytes in `content`, or a
+  `DownloadInfo` when it streams the file into a path or file object.
+- `assets.download_to` saves an asset's file in a directory, under a name made
+  from its filename with no path separators or characters that Windows
+  refuses. It adds a number, as in `lighthouse (1).png`, rather than overwrite
+  a file, and returns a `SavedDownload` with the `path`.
+- `runs.wait_for` takes `poll`, the seconds each read may wait for the run to
+  end, and `on_update`, which gets the run after each read. On `ZeroGen`, it
+  also takes `cancel`, a `threading.Event` that stops the wait at once by
+  raising `WaitCancelledError`.
+- `ZeroGen` and `AsyncZeroGen` take `user_agent`, your app's name and version,
+  which the `User-Agent` header names before the library's own, as in
+  `zerogen-nodes/0.1 zerogen-python/0.3.0`.
 - `folders.ensure_path` returns the folder at a path such as `"SH010/anim"`,
   creating each folder on the way that isn't there yet. It reuses a folder of
   the same name under the same parent, so clients saving into one path at once

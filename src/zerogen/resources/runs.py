@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import inspect
+import threading
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 from urllib.parse import quote
 
 from typing_extensions import Unpack
 
+from .._errors import WaitCancelledError
 from .._options import PostRequestOptions, RequestOptions, without_idempotency_key
 from ..types import CreateRunRequest, Quote, Run, RunList
 
@@ -15,6 +19,7 @@ if TYPE_CHECKING:
 MAX_WAIT_SECONDS = 60
 """The most the API holds a response for a run to end."""
 _ENDED = frozenset({"succeeded", "partial", "failed", "cancelled"})
+_CANCEL_CHECK_SECONDS = 0.05
 
 
 def has_ended(run: Run) -> bool:
@@ -24,6 +29,11 @@ def has_ended(run: Run) -> bool:
 
 def _path(id: str) -> str:
     return f"/runs/{quote(id, safe='')}"
+
+
+def _check_poll(poll: int) -> None:
+    if not 1 <= poll <= MAX_WAIT_SECONDS:
+        raise ValueError(f"poll takes 1 to {MAX_WAIT_SECONDS} seconds.")
 
 
 class Runs:
@@ -82,12 +92,62 @@ class Runs:
             Run.model_validate, "GET", _path(id), wait=wait, options=options
         )
 
-    def wait_for(self, id: str, /, **options: Unpack[RequestOptions]) -> Run:
-        """Returns a run when it ends."""
+    def wait_for(
+        self,
+        id: str,
+        /,
+        *,
+        poll: int = MAX_WAIT_SECONDS,
+        on_update: Callable[[Run], object] | None = None,
+        cancel: threading.Event | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> Run:
+        """Returns a run when it ends.
+
+        Args:
+            poll: Seconds each read may wait for the run to end, from 1 to 60. The API answers
+                as soon as the run ends, so a shorter `poll` only reports progress more often,
+                at a request each time.
+            on_update: Called with the run after each read, the last one included.
+            cancel: An event that stops the wait as soon as it's set, even partway through a
+                read, by raising `WaitCancelledError`. The run keeps running. A read in
+                flight finishes in a background thread, and its result is dropped.
+        """
+        _check_poll(poll)
         while True:
-            run = self.get(id, wait=MAX_WAIT_SECONDS, **options)
+            run = self._read(id, poll, cancel, options)
+            if on_update is not None:
+                on_update(run)
             if has_ended(run):
                 return run
+
+    def _read(
+        self, id: str, poll: int, cancel: threading.Event | None, options: RequestOptions
+    ) -> Run:
+        """Reads the run, waiting up to `poll` seconds for it to end. With `cancel`, reads in a
+        thread, so the event can stop the wait while the read is in flight."""
+        if cancel is None:
+            return self.get(id, wait=poll, **options)
+        if cancel.is_set():
+            raise WaitCancelledError(id)
+        outcome: list[Run | BaseException] = []
+        done = threading.Event()
+
+        def read() -> None:
+            try:
+                outcome.append(self.get(id, wait=poll, **options))
+            except BaseException as error:
+                outcome.append(error)
+            finally:
+                done.set()
+
+        threading.Thread(target=read, name=f"zerogen-wait-{id}", daemon=True).start()
+        while not done.wait(_CANCEL_CHECK_SECONDS):
+            if cancel.is_set():
+                raise WaitCancelledError(id)
+        if isinstance(outcome[0], BaseException):
+            raise outcome[0]
+        return outcome[0]
 
     def list(
         self,
@@ -182,11 +242,32 @@ class AsyncRuns:
             Run.model_validate, "GET", _path(id), wait=wait, options=options
         )
 
-    async def wait_for(self, id: str, /, **options: Unpack[RequestOptions]) -> Run:
+    async def wait_for(
+        self,
+        id: str,
+        /,
+        *,
+        poll: int = MAX_WAIT_SECONDS,
+        on_update: Callable[[Run], object] | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> Run:
         """Returns a run when it ends. Cancel the task to stop waiting; the run keeps
-        running."""
+        running.
+
+        Args:
+            poll: Seconds each read may wait for the run to end, from 1 to 60. The API answers
+                as soon as the run ends, so a shorter `poll` only reports progress more often,
+                at a request each time.
+            on_update: Called with the run after each read, the last one included. When it
+                returns an awaitable, such as a coroutine function's, the wait awaits it.
+        """
+        _check_poll(poll)
         while True:
-            run = await self.get(id, wait=MAX_WAIT_SECONDS, **options)
+            run = await self.get(id, wait=poll, **options)
+            if on_update is not None:
+                result = on_update(run)
+                if inspect.isawaitable(result):
+                    await result
             if has_ended(run):
                 return run
 

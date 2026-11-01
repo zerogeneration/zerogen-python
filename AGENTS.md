@@ -34,12 +34,19 @@ uploads and downloads on top of the types generated from it.
   API.
 - The library supports Python 3.10 and later. Before you commit, run
   `uv run scripts/check.py` (Ruff's linter and formatter, pyright, pytest).
+- Keep the dependency floors low, `pydantic>=2.11` above all, which
+  `validate_by_name` needs. The ComfyUI pack installs this library into
+  ComfyUI's own environment, which pins `pydantic~=2.0`, so a higher floor
+  upgrades a package that every ComfyUI install and its other packs share.
 - The `CI` workflow runs on every pull request and push to `main`. It runs
   `scripts/check.py` and `uv build` on Python 3.10 and 3.14, and the tests on
   Python 3.10 with the lowest dependency versions `pyproject.toml` allows
   (`--resolution lowest-direct`). That run disables pytest's typeguard plugin,
   which `datamodel-code-generator` brings in through `inflect` and which fails
-  to load beside the lowest `typing-extensions`.
+  to load beside the lowest `typing-extensions`. A fourth job installs the
+  package on Python 3.13 beside the pydantic, anyio and `typing-extensions`
+  that ComfyUI 0.43.0's portable build ships, as ComfyUI-Manager would, and
+  runs the tests against it.
 
 ## Releases
 
