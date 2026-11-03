@@ -74,6 +74,9 @@ class CreateRunRequestTest(TypedDict, closed=True):
     """
 
 
+CreateRunRequestLabelId: TypeAlias = str
+
+
 class CreateRunRequestNaming(TypedDict, closed=True):
     presetId: str
     """
@@ -82,6 +85,15 @@ class CreateRunRequestNaming(TypedDict, closed=True):
     values: dict[str, str | int]
     """
     Field values by field ID; fields left out take the preset's defaults
+    """
+
+
+class CreateRunRequestUpscaleDraft(TypedDict, closed=True):
+    runId: str
+    outputIndex: int
+    resolution: NotRequired[str]
+    """
+    The final's resolution: 1080p by default, or another that the model's requestSchema lists
     """
 
 
@@ -112,13 +124,21 @@ class CreateRunRequest(TypedDict, closed=True):
     """
     projectId: NotRequired[str]
     """
-    The project the outputs land in; the organization's default project when omitted. Test keys use their sandbox.
+    The project the outputs land in; the organization's default project when omitted, or the draft's with upscaleDraft. Test keys use their sandbox.
     """
     folderId: NotRequired[str | None]
     """
     A folder in that project to file the outputs in; null or omitted for Unfiled
     """
+    labelIds: NotRequired[list[CreateRunRequestLabelId]]
+    """
+    Active organization labels to add to every output as it lands
+    """
     naming: NotRequired[CreateRunRequestNaming]
+    upscaleDraft: NotRequired[CreateRunRequestUpscaleDraft]
+    """
+    Upscale one output of a Seedance 2.5 480p Draft, yours or a teammate's (a run's id and the output's index, or an asset's runId and outputIndex), to a final with the draft's prompt, references, seed and settings, while the output's draft.upscalable is true. Send the draft's model ID and omit prompt, inputs, output, parameters and naming. The final is a new run, quoted and billed like any other.
+    """
 
 
 class CreateUploadRequest(TypedDict, closed=True):
@@ -165,6 +185,10 @@ class UpdateAssetRequest(TypedDict, closed=True):
     """
     The organization's shared favorite
     """
+
+
+class RestoreFolderRequest(TypedDict, closed=True):
+    eventId: str
 
 
 class CreateFolderRequest(TypedDict, closed=True):

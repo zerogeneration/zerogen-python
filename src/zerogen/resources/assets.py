@@ -92,6 +92,7 @@ def _search_query(
     q: str | None,
     type: AssetType | None,
     origin: AssetOrigin | None,
+    created_by: str | Sequence[str] | None,
     resolution: Resolution | Sequence[Resolution] | None,
     sort: Literal["newest", "oldest"] | None,
     limit: int | None,
@@ -105,6 +106,7 @@ def _search_query(
         "q": q,
         "type": type,
         "origin": origin,
+        "createdBy": _values(created_by),
         "resolution": _values(resolution),
         "sort": sort,
         "limit": limit,
@@ -236,6 +238,7 @@ class Assets:
         q: str | None = None,
         type: AssetType | None = None,
         origin: AssetOrigin | None = None,
+        created_by: str | Sequence[str] | None = None,
         resolution: Resolution | Sequence[Resolution] | None = None,
         sort: Literal["newest", "oldest"] | None = None,
         limit: int | None = None,
@@ -256,6 +259,8 @@ class Assets:
                 words must match, ignoring case.
             type: Only this media type.
             origin: Only assets that came about this way.
+            created_by: Only assets any of these users made, by the ID in an asset's
+                `created_by` or `me()`.
             resolution: Only assets in any of these resolution tiers.
             sort: Order by creation; default newest.
             limit: Assets per page, up to 50; default 20.
@@ -272,6 +277,7 @@ class Assets:
                 q,
                 type,
                 origin,
+                created_by,
                 resolution,
                 sort,
                 limit,
@@ -432,6 +438,7 @@ class AsyncAssets:
         q: str | None = None,
         type: AssetType | None = None,
         origin: AssetOrigin | None = None,
+        created_by: str | Sequence[str] | None = None,
         resolution: Resolution | Sequence[Resolution] | None = None,
         sort: Literal["newest", "oldest"] | None = None,
         limit: int | None = None,
@@ -452,6 +459,8 @@ class AsyncAssets:
                 words must match, ignoring case.
             type: Only this media type.
             origin: Only assets that came about this way.
+            created_by: Only assets any of these users made, by the ID in an asset's
+                `created_by` or `me()`.
             resolution: Only assets in any of these resolution tiers.
             sort: Order by creation; default newest.
             limit: Assets per page, up to 50; default 20.
@@ -468,6 +477,7 @@ class AsyncAssets:
                 q,
                 type,
                 origin,
+                created_by,
                 resolution,
                 sort,
                 limit,

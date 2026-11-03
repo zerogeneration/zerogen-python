@@ -111,6 +111,9 @@ def api_error(
     return json_response({"error": error}, status, headers)
 
 
+CREATOR = {"id": "u1", "name": "Ada Lovelace"}
+
+
 def run_body(id: str = "g1", status: str = "queued", **fields: Any) -> dict[str, Any]:
     return {
         "id": id,
@@ -130,6 +133,9 @@ def run_body(id: str = "g1", status: str = "queued", **fields: Any) -> dict[str,
         "createdAt": "2026-10-25T00:00:00.000Z",
         "startedAt": None,
         "finishedAt": None,
+        "createdBy": CREATOR,
+        "createdVia": "api",
+        "webUrl": None,
         **fields,
     }
 
@@ -174,6 +180,9 @@ def asset(id: str = "a1", **fields: Any) -> dict[str, Any]:
         "outputIndex": 0,
         "createdAt": "2026-10-25T00:00:00.000Z",
         "preview": None,
+        "createdBy": CREATOR,
+        "createdVia": "api",
+        "webUrl": None,
         **fields,
     }
 

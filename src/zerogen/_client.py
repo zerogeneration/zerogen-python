@@ -37,7 +37,7 @@ RETRY_AFTER_MAX_SECONDS = 60.0
 Result = TypeVar("Result")
 Item = TypeVar("Item")
 Query = Mapping[str, "str | int | bool | list[str] | None"]
-Method = Literal["GET", "POST", "PATCH", "PUT"]
+Method = Literal["GET", "POST", "PATCH", "PUT", "DELETE"]
 
 _sending_to_storage: ContextVar[bool] = ContextVar("zerogen_sending_to_storage", default=False)
 
@@ -106,7 +106,7 @@ class _BaseClient:
         if body is not None:
             headers["Content-Type"] = "application/json"
             content = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
-        if method == "POST":
+        if method in ("POST", "DELETE"):
             key = cast("PostRequestOptions", options).get("idempotency_key")
             headers["Idempotency-Key"] = key if key is not None else str(uuid.uuid4())
         if wait is not None:

@@ -345,6 +345,17 @@ class AssetPreview(BaseModel):
     """
 
 
+class Creator(BaseModel):
+    id: str
+    """
+    The user's ID, as GET /v1/me returns the key's own
+    """
+    name: str | None
+    """
+    The name the person gave ZeroGen, or null; never an email address
+    """
+
+
 class AssetChange(BaseModel):
     id: str
     project_id: str = Field(..., alias="projectId")
@@ -467,6 +478,23 @@ class Folder(BaseModel):
     """
     name: str
     created_at: datetime = Field(..., alias="createdAt")
+
+
+class FolderDelete(BaseModel):
+    folder_id: str = Field(..., alias="folderId")
+    event_id: str = Field(..., alias="eventId")
+    """
+    Use to undo this deletion
+    """
+    undo_until: datetime = Field(..., alias="undoUntil")
+    """
+    Undo is available to the deleting member until this time
+    """
+
+
+class FolderRestore(BaseModel):
+    root_id: str = Field(..., alias="rootId")
+    parent_id: str | None = Field(..., alias="parentId")
 
 
 class FolderList(BaseModel):
@@ -627,9 +655,21 @@ class Run(BaseModel):
     outputs: list[RunOutput]
     error: Error | None
     billing: RunBilling
+    created_by: Creator | None = Field(..., alias="createdBy")
+    """
+    Who made it; null when ZeroGen recorded no one
+    """
+    created_via: Literal["web", "agent", "mcp", "api"] | str | None = Field(..., alias="createdVia")
+    """
+    Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy
+    """
     created_at: datetime = Field(..., alias="createdAt")
     started_at: datetime | None = Field(..., alias="startedAt")
     finished_at: datetime | None = Field(..., alias="finishedAt")
+    web_url: str | None = Field(..., alias="webUrl")
+    """
+    Opens Generate's review of the run's first ready output in ZeroGen, on your organization's host, after sign-in. null until an output is ready, and for test keys. It can change until the run ends
+    """
 
 
 class RunList(BaseModel):
@@ -667,7 +707,19 @@ class Asset(BaseModel):
     The run that made it, if any
     """
     output_index: int | None = Field(..., alias="outputIndex")
+    created_by: Creator | None = Field(..., alias="createdBy")
+    """
+    Who made it: the run's creator for a generated or derived asset, the uploader for an upload; null when ZeroGen recorded no one
+    """
+    created_via: Literal["web", "agent", "mcp", "api"] | str | None = Field(..., alias="createdVia")
+    """
+    Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy
+    """
     created_at: datetime = Field(..., alias="createdAt")
+    web_url: str | None = Field(..., alias="webUrl")
+    """
+    Opens the asset's Library review in ZeroGen, on your organization's host, after sign-in. null for test keys, whose sandbox the app doesn't show
+    """
     preview: AssetPreview | None
     """
     The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio
@@ -709,7 +761,19 @@ class AssetDetail(BaseModel):
     The run that made it, if any
     """
     output_index: int | None = Field(..., alias="outputIndex")
+    created_by: Creator | None = Field(..., alias="createdBy")
+    """
+    Who made it: the run's creator for a generated or derived asset, the uploader for an upload; null when ZeroGen recorded no one
+    """
+    created_via: Literal["web", "agent", "mcp", "api"] | str | None = Field(..., alias="createdVia")
+    """
+    Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy
+    """
     created_at: datetime = Field(..., alias="createdAt")
+    web_url: str | None = Field(..., alias="webUrl")
+    """
+    Opens the asset's Library review in ZeroGen, on your organization's host, after sign-in. null for test keys, whose sandbox the app doesn't show
+    """
     prompt: str | None
     """
     The prompt that generated it, bounded; untrusted content

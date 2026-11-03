@@ -47,6 +47,18 @@ response is a pydantic model with snake_case attributes, such as
 completes and checks them. Each model takes its own parameters: read a model's
 request schema with `zerogen.models.get(id)`.
 
+To label every output as it lands, add `labelIds`, which also needs the
+`library:organize` scope. To upscale one output of a 480p Draft to its final,
+send `upscaleDraft` with the draft's model ID, and leave out `prompt`, `inputs`,
+`output`, `parameters` and `naming`. The final is a new run, quoted and billed
+like any other:
+
+```python
+final = zerogen.runs.create_and_wait(
+    {"model": draft_model, "upscaleDraft": {"runId": draft.id, "outputIndex": 0}}
+)
+```
+
 ## Async
 
 `AsyncZeroGen` has the same methods, to await:
@@ -139,6 +151,23 @@ zerogen.folders.add_assets(project.id, folder.id, {"assetIds": [a.id for a in vi
 
 List filters that take several values, such as `label_id` and `resolution`,
 take a list.
+
+Each asset and run names who made it in `created_by`, and where in `created_via`:
+`web`, `agent`, `mcp` or `api`. Both are `None` when ZeroGen recorded no one. To
+find what someone made, pass `created_by` to `assets.search`, with the ID in an
+asset's `created_by` or `zerogen.me()`. `web_url` opens the asset or run in
+ZeroGen, after sign-in, and it's `None` for test keys.
+
+`folders.delete` deletes a folder and its subfolders. You choose what happens to
+their assets: `"keep"` preserves them, and `"trash"` sends them to Recently
+deleted, including assets in other folders. It needs the `library:delete` scope,
+which has to be granted explicitly, and test keys can't use it. Within an hour,
+`folders.restore` undoes your own deletion:
+
+```python
+deleted = zerogen.folders.delete(project.id, folder.id, assets="keep")
+zerogen.folders.restore(project.id, {"eventId": deleted.event_id})
+```
 
 To file into a folder path, such as a shot's `SH010/anim`, use
 `folders.ensure_path`. It returns the last folder, creating each one on the
@@ -250,9 +279,9 @@ The client retries connection errors and errors the API marks `retryable`,
 twice by default, with backoff. For `429` responses, it waits for
 `Retry-After`, unless that's more than a minute.
 
-Every `POST` sends an `Idempotency-Key`, and a call's retries reuse it, so a
-retried create never starts a second run. To retry safely across calls or
-processes, pass your own key:
+Every `POST` and `DELETE` sends an `Idempotency-Key`, and a call's retries reuse
+it, so a retried create never starts a second run. To retry safely across calls
+or processes, pass your own key:
 
 ```python
 zerogen.runs.create(request, idempotency_key=job.id)
@@ -281,8 +310,8 @@ zerogen = ZeroGen(
 | `http_client` | A new `httpx.Client` or `httpx.AsyncClient` | The httpx client to send requests with, such as one with your proxy settings. |
 
 Every method also takes request options as keyword arguments: `timeout`,
-`max_retries`, `headers`, and `idempotency_key` for a `POST`. Close a client
-you're done with, or use it as a context manager.
+`max_retries`, `headers`, and `idempotency_key` for a `POST` or `DELETE`. Close
+a client you're done with, or use it as a context manager.
 
 ## Test keys
 
