@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from urllib.parse import quote
 
 from typing_extensions import Unpack
 
-from .._options import PostRequestOptions, RequestOptions
+from .._options import PostRequestOptions, RequestOptions, without_idempotency_key
 from ..types import (
     CreateFolderRequest,
     Folder,
@@ -95,10 +95,12 @@ class Folders:
                 `/`; pass a list when a name contains `/`.
             parent_id: The folder the path starts under; default the project root.
         """
+        # Options shared with other calls can still carry a key; each level needs its own.
+        rest = without_idempotency_key(cast(PostRequestOptions, options))
         folder: Folder | None = None
         for name in _names(path):
             body: CreateFolderRequest = {"name": name, "parentId": parent_id, "reuseExisting": True}
-            folder = self.create(project_id, body, **options)
+            folder = self.create(project_id, body, **rest)
             parent_id = folder.id
         assert folder is not None
         return folder
@@ -234,10 +236,12 @@ class AsyncFolders:
                 `/`; pass a list when a name contains `/`.
             parent_id: The folder the path starts under; default the project root.
         """
+        # Options shared with other calls can still carry a key; each level needs its own.
+        rest = without_idempotency_key(cast(PostRequestOptions, options))
         folder: Folder | None = None
         for name in _names(path):
             body: CreateFolderRequest = {"name": name, "parentId": parent_id, "reuseExisting": True}
-            folder = await self.create(project_id, body, **options)
+            folder = await self.create(project_id, body, **rest)
             parent_id = folder.id
         assert folder is not None
         return folder

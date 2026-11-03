@@ -180,6 +180,15 @@ def test_ensure_path_takes_names_that_contain_a_slash_as_a_list(make_client: Mak
     assert calls[0].json() == {"name": "2026/11/01", "parentId": "f0", "reuseExisting": True}
 
 
+def test_ensure_path_gives_each_level_its_own_key(make_client: MakeClient) -> None:
+    zerogen, calls = make_client(json_response(FOLDER), json_response({**FOLDER, "id": "f2"}))
+    shared: dict[str, Any] = {"idempotency_key": "shared-key", "timeout": 5.0}
+    run(zerogen.folders.ensure_path("p1", "Shots/anim", **shared))
+    keys = [call.headers["idempotency-key"] for call in calls]
+    assert "shared-key" not in keys
+    assert len(set(keys)) == 2
+
+
 @pytest.mark.parametrize("path", ["", "/", []])
 def test_ensure_path_needs_a_folder_name(make_client: MakeClient, path: str | list[str]) -> None:
     zerogen, calls = make_client()
