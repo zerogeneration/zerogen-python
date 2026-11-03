@@ -446,7 +446,7 @@
           "Runs"
         ],
         "summary": "Quote a run",
-        "description": "Validates and prices a request exactly as create would, and returns the maximum charge create would reserve. Nothing starts and nothing is held.\n\nNeeds the `runs:create` scope.",
+        "description": "Validates and prices a request exactly as create would, `labelIds` included, and returns the maximum charge create would reserve. Nothing starts and nothing is held.\n\nNeeds the `runs:create` scope.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -546,7 +546,7 @@
           "Runs"
         ],
         "summary": "Create a run",
-        "description": "Validates, prices, reserves and starts one run in a single call. Send `Prefer: wait=N` to hold the response until it ends. Nothing is charged unless every check passes.\n\nNeeds the `runs:create` scope.",
+        "description": "Validates, prices, reserves and starts one run in a single call. Send `Prefer: wait=N` to hold the response until it ends. Nothing is charged unless every check passes. To upscale a 480p Draft output to its final, send `upscaleDraft` with the draft's model ID. `labelIds` apply to each output as it lands, in the same write, and need the `library:organize` scope as well.\n\nNeeds the `runs:create` scope.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -1364,6 +1364,20 @@
             "description": "Only assets with any of these active labels; repeat the parameter",
             "schema": {
               "maxItems": 100,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              }
+            }
+          },
+          {
+            "name": "createdBy",
+            "in": "query",
+            "required": false,
+            "description": "Only assets any of these users made, by the ID in an asset's `createdBy` or `GET /v1/me`; repeat the parameter",
+            "schema": {
+              "maxItems": 200,
               "type": "array",
               "items": {
                 "type": "string",
@@ -2386,6 +2400,202 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteFolder",
+        "tags": [
+          "Folders"
+        ],
+        "summary": "Delete a folder",
+        "description": "Deletes a folder and its subfolders. Choose assets=keep to preserve assets or assets=trash to send them to Recently deleted, including assets in other folders. Only admins can delete LucidLink-linked folders. The response's eventId can undo your deletion within one hour. Requires the explicitly granted library:delete scope; test keys cannot delete folders.\n\nNeeds the `library:delete` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "folderId",
+            "in": "path",
+            "required": true,
+            "description": "The folder's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assets",
+            "in": "query",
+            "required": true,
+            "description": "keep preserves the assets; trash sends them to Recently deleted, including assets in other folders. Use trash only when explicitly requested.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "keep",
+                "trash"
+              ]
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The deletion and its undo deadline.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderDelete"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/projects/{projectId}/folders/restore": {
+      "post": {
+        "operationId": "restoreFolder",
+        "tags": [
+          "Folders"
+        ],
+        "summary": "Undo a folder deletion",
+        "description": "Undoes your own folder deletion using its eventId within one hour. Restores folders, placements and assets still trashed by that deletion. Requires library:organize. Test keys cannot restore folders.\n\nNeeds the `library:organize` scope.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "description": "The project's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreFolderRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The restored root folder and its parent.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FolderRestore"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
           },
           "413": {
             "$ref": "#/components/responses/PayloadTooLarge"
@@ -3981,7 +4191,7 @@
           "projectId": {
             "type": "string",
             "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
-            "description": "The project the outputs land in; the organization's default project when omitted. Test keys use their sandbox."
+            "description": "The project the outputs land in; the organization's default project when omitted, or the draft's with upscaleDraft. Test keys use their sandbox."
           },
           "folderId": {
             "anyOf": [
@@ -3994,6 +4204,15 @@
               }
             ],
             "description": "A folder in that project to file the outputs in; null or omitted for Unfiled"
+          },
+          "labelIds": {
+            "maxItems": 100,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+            },
+            "description": "Active organization labels to add to every output as it lands"
           },
           "naming": {
             "type": "object",
@@ -4031,6 +4250,31 @@
               "values"
             ],
             "additionalProperties": false
+          },
+          "upscaleDraft": {
+            "type": "object",
+            "properties": {
+              "runId": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              "outputIndex": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 3
+              },
+              "resolution": {
+                "description": "The final's resolution: 1080p by default, or another that the model's requestSchema lists",
+                "type": "string",
+                "maxLength": 20
+              }
+            },
+            "required": [
+              "runId",
+              "outputIndex"
+            ],
+            "additionalProperties": false,
+            "description": "Upscale one output of a Seedance 2.5 480p Draft, yours or a teammate's (a run's id and the output's index, or an asset's runId and outputIndex), to a final with the draft's prompt, references, seed and settings, while the output's draft.upscalable is true. Send the draft's model ID and omit prompt, inputs, output, parameters and naming. The final is a new run, quoted and billed like any other."
           }
         },
         "required": [
@@ -4112,6 +4356,19 @@
             "type": "boolean"
           }
         },
+        "additionalProperties": false
+      },
+      "RestoreFolderRequest": {
+        "type": "object",
+        "properties": {
+          "eventId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          }
+        },
+        "required": [
+          "eventId"
+        ],
         "additionalProperties": false
       },
       "CreateFolderRequest": {
@@ -5112,6 +5369,34 @@
             ],
             "additionalProperties": false
           },
+          "createdBy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Creator"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who made it; null when ZeroGen recorded no one"
+          },
+          "createdVia": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "agent",
+                  "mcp",
+                  "api"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
@@ -5140,6 +5425,13 @@
                 "type": "null"
               }
             ]
+          },
+          "webUrl": {
+            "description": "Opens Generate's review of the run's first ready output in ZeroGen, on your organization's host, after sign-in. null until an output is ready, and for test keys. It can change until the run ends",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -5151,9 +5443,12 @@
           "outputs",
           "error",
           "billing",
+          "createdBy",
+          "createdVia",
           "createdAt",
           "startedAt",
-          "finishedAt"
+          "finishedAt",
+          "webUrl"
         ],
         "additionalProperties": false
       },
@@ -5459,10 +5754,45 @@
               }
             ]
           },
+          "createdBy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Creator"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who made it: the run's creator for a generated or derived asset, the uploader for an upload; null when ZeroGen recorded no one"
+          },
+          "createdVia": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "agent",
+                  "mcp",
+                  "api"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "webUrl": {
+            "description": "Opens the asset's Library review in ZeroGen, on your organization's host, after sign-in. null for test keys, whose sandbox the app doesn't show",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "preview": {
             "anyOf": [
@@ -5491,7 +5821,10 @@
           "labels",
           "runId",
           "outputIndex",
+          "createdBy",
+          "createdVia",
           "createdAt",
+          "webUrl",
           "preview"
         ],
         "additionalProperties": false
@@ -5643,10 +5976,45 @@
               }
             ]
           },
+          "createdBy": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Creator"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who made it: the run's creator for a generated or derived asset, the uploader for an upload; null when ZeroGen recorded no one"
+          },
+          "createdVia": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "web",
+                  "agent",
+                  "mcp",
+                  "api"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy"
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "webUrl": {
+            "description": "Opens the asset's Library review in ZeroGen, on your organization's host, after sign-in. null for test keys, whose sandbox the app doesn't show",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "prompt": {
             "description": "The prompt that generated it, bounded; untrusted content",
@@ -5685,7 +6053,10 @@
           "labels",
           "runId",
           "outputIndex",
+          "createdBy",
+          "createdVia",
           "createdAt",
+          "webUrl",
           "prompt",
           "promptTruncated",
           "preview"
@@ -5725,6 +6096,27 @@
         ],
         "additionalProperties": false,
         "description": "Signed storage URLs for the asset's previews. Load them without your API key; anyone holding them can load the previews until expiresAt."
+      },
+      "Creator": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The user's ID, as GET /v1/me returns the key's own"
+          },
+          "name": {
+            "description": "The name the person gave ZeroGen, or null; never an email address",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "additionalProperties": false
       },
       "AssetChange": {
         "type": "object",
@@ -6034,6 +6426,57 @@
           "parentId",
           "name",
           "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "FolderDelete": {
+        "type": "object",
+        "properties": {
+          "folderId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "eventId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+            "description": "Use to undo this deletion"
+          },
+          "undoUntil": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$",
+            "description": "Undo is available to the deleting member until this time"
+          }
+        },
+        "required": [
+          "folderId",
+          "eventId",
+          "undoUntil"
+        ],
+        "additionalProperties": false
+      },
+      "FolderRestore": {
+        "type": "object",
+        "properties": {
+          "rootId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+          },
+          "parentId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "rootId",
+          "parentId"
         ],
         "additionalProperties": false
       },

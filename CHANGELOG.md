@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 This release breaks compatibility with 0.2: `assets.download` returns a
-`Download` instead of the file's bytes, which are now its `content`. This release needs the API that reuses folders by name.
+`Download` instead of the file's bytes, which are now its `content`. Its models
+also need the fields the API has added since 0.2.1, such as `createdBy`, so it
+can't read an older deployment of the API.
 
 - Downloads return the file's `filename`, `mime_type` and `size_bytes`.
   `assets.download` returns a `Download`, with the bytes in `content`, or a
@@ -25,7 +27,14 @@ This release breaks compatibility with 0.2: `assets.download` returns a
   share its folders. Pass a list of names when a name contains `/`.
 - `folders.create` takes `reuseExisting`: with `True`, a folder of that name
   already under the parent is returned instead of a second one.
-- `runs.create` takes `seed` for models that accept one.
+- `runs.create` takes `seed` for models that accept one, `labelIds` to label
+  every output as it lands, and `upscaleDraft` to upscale a 480p Draft output to
+  its final.
+- Assets and runs have `created_by` and `created_via`, who made them and where,
+  and `web_url`, which opens them in ZeroGen. `assets.search` takes `created_by`.
+- `folders.delete` deletes a folder and its subfolders, with `assets` set to
+  `"keep"` or `"trash"`, and `folders.restore` undoes that within an hour. A
+  `DELETE` sends an `Idempotency-Key`, as a `POST` does.
 
 ## 0.2.1
 

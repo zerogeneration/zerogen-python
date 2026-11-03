@@ -18,7 +18,7 @@ class RequestOptions(TypedDict, total=False):
 
 
 class PostRequestOptions(RequestOptions, total=False):
-    """Options that every method sending a `POST` takes as keyword arguments."""
+    """Options that every method sending a `POST` or `DELETE` takes as keyword arguments."""
 
     idempotency_key: str
     """Each call sends a new random key by default and reuses it on that call's retries; pass

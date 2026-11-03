@@ -23,7 +23,8 @@ uploads and downloads on top of the types generated from it.
   older client keeps working when the API grows. Keep it that way.
 - `ZeroGen` and `AsyncZeroGen` have the same methods. Change both. The
   `make_client` fixture runs a test once with each.
-- Every `POST` sends an `Idempotency-Key` that the call's retries reuse.
+- Every `POST` and `DELETE` sends an `Idempotency-Key` that the call's retries
+  reuse.
   Retries follow the error's `retryable` and `Retry-After`; keep it that way.
 - Signed storage URLs, for uploads and downloads, go through the client's
   `_storage` method, which sends only the headers storage needs (never the API

@@ -194,6 +194,34 @@ def test_waits_out_a_run_and_reports_errors_with_a_cancel_event_never_set() -> N
     assert caught.value.code == "not_found"
 
 
+def test_reads_who_made_a_run_and_where_to_open_it(make_client: MakeClient) -> None:
+    url = "https://acme.zerogen.com/generate?run=g1"
+    zerogen, _ = make_client(
+        json_response(run_body(createdVia="agent", webUrl=url)),
+        json_response(run_body(createdBy=None, createdVia=None)),
+    )
+    made = run(zerogen.runs.get("g1"))
+    assert made.created_by is not None
+    assert (made.created_by.id, made.created_via, made.web_url) == ("u1", "agent", url)
+    unknown = run(zerogen.runs.get("g1"))
+    assert (unknown.created_by, unknown.created_via, unknown.web_url) == (None, None, None)
+
+
+def test_sends_labels_and_a_draft_upscale_as_given(make_client: MakeClient) -> None:
+    zerogen, calls = make_client(json_response(run_body()), json_response(run_body()))
+    run(zerogen.runs.create({"model": "a/b/generate", "prompt": "A dawn", "labelIds": ["l1"]}))
+    run(
+        zerogen.runs.create(
+            {"model": "a/b/generate", "upscaleDraft": {"runId": "g0", "outputIndex": 1}}
+        )
+    )
+    assert calls[0].json()["labelIds"] == ["l1"]
+    assert calls[1].json() == {
+        "model": "a/b/generate",
+        "upscaleDraft": {"runId": "g0", "outputIndex": 1},
+    }
+
+
 def test_reads_statuses_and_fields_it_doesnt_know_yet(make_client: MakeClient) -> None:
     zerogen, _ = make_client(json_response(run_body(status="paused", priority="high")))
     later = run(zerogen.runs.get("g1"))

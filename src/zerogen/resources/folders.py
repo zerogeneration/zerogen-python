@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import quote
 
 from typing_extensions import Unpack
@@ -12,8 +12,11 @@ from ..types import (
     Folder,
     FolderAssetsChange,
     FolderAssetsRequest,
+    FolderDelete,
     FolderList,
+    FolderRestore,
     MoveAssetsRequest,
+    RestoreFolderRequest,
     UpdateFolderRequest,
 )
 
@@ -117,6 +120,50 @@ class Folders:
             Folder.model_validate,
             "PATCH",
             _path(project_id, folder_id),
+            body=body,
+            options=options,
+        )
+
+    def delete(
+        self,
+        project_id: str,
+        folder_id: str,
+        /,
+        *,
+        assets: Literal["keep", "trash"],
+        **options: Unpack[PostRequestOptions],
+    ) -> FolderDelete:
+        """Deletes a folder and its subfolders. The response's `event_id` undoes your deletion
+        within one hour, through `restore`. Only admins can delete LucidLink-linked folders.
+        Needs the `library:delete` scope, which has to be granted explicitly; test keys can't
+        delete folders.
+
+        Args:
+            assets: `"keep"` preserves the assets; `"trash"` sends them to Recently deleted,
+                including assets in other folders. Use `"trash"` only when explicitly requested.
+        """
+        return self._client._request(
+            FolderDelete.model_validate,
+            "DELETE",
+            _path(project_id, folder_id),
+            query={"assets": assets},
+            options=options,
+        )
+
+    def restore(
+        self,
+        project_id: str,
+        body: RestoreFolderRequest,
+        /,
+        **options: Unpack[PostRequestOptions],
+    ) -> FolderRestore:
+        """Undoes your own folder deletion within one hour, with the `eventId` its response
+        gave. Restores folders, placements and assets still trashed by that deletion. Needs the
+        `library:organize` scope; test keys can't restore folders."""
+        return self._client._request(
+            FolderRestore.model_validate,
+            "POST",
+            f"{_path(project_id)}/restore",
             body=body,
             options=options,
         )
@@ -256,6 +303,50 @@ class AsyncFolders:
             Folder.model_validate,
             "PATCH",
             _path(project_id, folder_id),
+            body=body,
+            options=options,
+        )
+
+    async def delete(
+        self,
+        project_id: str,
+        folder_id: str,
+        /,
+        *,
+        assets: Literal["keep", "trash"],
+        **options: Unpack[PostRequestOptions],
+    ) -> FolderDelete:
+        """Deletes a folder and its subfolders. The response's `event_id` undoes your deletion
+        within one hour, through `restore`. Only admins can delete LucidLink-linked folders.
+        Needs the `library:delete` scope, which has to be granted explicitly; test keys can't
+        delete folders.
+
+        Args:
+            assets: `"keep"` preserves the assets; `"trash"` sends them to Recently deleted,
+                including assets in other folders. Use `"trash"` only when explicitly requested.
+        """
+        return await self._client._request(
+            FolderDelete.model_validate,
+            "DELETE",
+            _path(project_id, folder_id),
+            query={"assets": assets},
+            options=options,
+        )
+
+    async def restore(
+        self,
+        project_id: str,
+        body: RestoreFolderRequest,
+        /,
+        **options: Unpack[PostRequestOptions],
+    ) -> FolderRestore:
+        """Undoes your own folder deletion within one hour, with the `eventId` its response
+        gave. Restores folders, placements and assets still trashed by that deletion. Needs the
+        `library:organize` scope; test keys can't restore folders."""
+        return await self._client._request(
+            FolderRestore.model_validate,
+            "POST",
+            f"{_path(project_id)}/restore",
             body=body,
             options=options,
         )

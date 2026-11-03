@@ -12,9 +12,11 @@ import httpx
 import pytest
 from conftest import MakeClient
 from fakes import (
+    CREATOR,
     FOLDER,
     LABEL,
     Client,
+    api_error,
     asset,
     download_link,
     first_page,
@@ -35,6 +37,7 @@ EXPIRED = "<Error><Code>AccessDenied</Code><Message>Request has expired</Message
 HELLO = b"hello"
 FOLDER_CHANGE = {"folderId": "f1", "updatedAssetIds": ["a1"], "skippedAssetIds": []}
 LABEL_CHANGE = {"labelId": "l1", "projectId": "p1", "assetIds": ["a1"], "assigned": True}
+FOLDER_DELETE = {"folderId": "f1", "eventId": "e1", "undoUntil": "2026-10-25T01:00:00.000Z"}
 LINEAGE: dict[str, Any] = {
     "asset": None,
     "sources": [],
@@ -92,6 +95,18 @@ ROUTES: list[tuple[Callable[[Client], object], str, Any, dict[str, Any]]] = [
         "POST /projects/p1/folders/f1/assets/remove",
         {"assetIds": ["a1"]},
         FOLDER_CHANGE,
+    ),
+    (
+        lambda z: z.folders.delete("p1", "f1", assets="keep"),
+        "DELETE /projects/p1/folders/f1?assets=keep",
+        None,
+        FOLDER_DELETE,
+    ),
+    (
+        lambda z: z.folders.restore("p1", {"eventId": "e1"}),
+        "POST /projects/p1/folders/restore",
+        {"eventId": "e1"},
+        {"rootId": "f1", "parentId": None},
     ),
     (lambda z: z.labels.create({"name": "Hero"}), "POST /labels", {"name": "Hero"}, LABEL),
     (
@@ -157,7 +172,7 @@ def test_sends_each_library_request_to_its_route(
     method, path = route.split(" ")
     assert (calls[0].method, calls[0].url) == (method, API + path)
     assert (calls[0].json() if calls[0].body else None) == body
-    assert ("idempotency-key" in calls[0].headers) == (method == "POST")
+    assert ("idempotency-key" in calls[0].headers) == (method in ("POST", "DELETE"))
 
 
 def test_ensure_path_finds_or_creates_each_folder_in_turn(make_client: MakeClient) -> None:
@@ -229,6 +244,47 @@ def test_searches_assets_with_repeated_filters_and_favorites_only_when_asked(
         "&type=video&resolution=4k&sort=oldest",
         f"{API}/assets",
     ]
+
+
+def test_finds_who_made_an_asset_and_where_to_open_it(make_client: MakeClient) -> None:
+    url = "https://acme.zerogen.com/library/a1"
+    zerogen, calls = make_client(
+        json_response(
+            page(
+                asset("a1", createdVia="mcp", webUrl=url),
+                asset("a2", createdBy=None, createdVia=None),
+            )
+        ),
+        json_response(asset("a1", prompt="A lighthouse", promptTruncated=False, webUrl=url)),
+    )
+    made, unknown = first_page(zerogen.assets.search(created_by=["u1", "u2"])).data
+    assert calls[0].url == f"{API}/assets?createdBy=u1&createdBy=u2"
+    assert made.created_by is not None
+    assert (made.created_by.id, made.created_by.name) == ("u1", CREATOR["name"])
+    assert (made.created_via, made.web_url) == ("mcp", url)
+    assert (unknown.created_by, unknown.created_via, unknown.web_url) == (None, None, None)
+    detail = run(zerogen.assets.get("a1"))
+    assert detail.created_by is not None
+    assert (detail.created_by.id, detail.web_url) == ("u1", url)
+
+
+@pytest.mark.usefixtures("no_backoff")
+def test_retries_a_folder_deletion_with_the_same_idempotency_key_and_can_undo_it(
+    make_client: MakeClient,
+) -> None:
+    zerogen, calls = make_client(
+        api_error(503, "unavailable", retryable=True),
+        json_response(FOLDER_DELETE),
+        json_response({"rootId": "f1", "parentId": "f0"}),
+    )
+    deleted = run(zerogen.folders.delete("p1", "f1", assets="trash", idempotency_key="job-1"))
+    assert [call.url for call in calls] == [f"{API}/projects/p1/folders/f1?assets=trash"] * 2
+    assert [call.headers["idempotency-key"] for call in calls] == ["job-1", "job-1"]
+    assert (deleted.folder_id, deleted.event_id) == ("f1", "e1")
+    assert deleted.undo_until == datetime(2026, 10, 25, 1, tzinfo=timezone.utc)
+    restored = run(zerogen.folders.restore("p1", {"eventId": deleted.event_id}))
+    assert (restored.root_id, restored.parent_id) == ("f1", "f0")
+    assert calls[2].json() == {"eventId": "e1"}
 
 
 def test_reads_each_assets_preview_or_null_until_its_made(make_client: MakeClient) -> None:
