@@ -41,7 +41,9 @@ Resolution = Literal["4k", "1440p", "1080p", "720p", "sd", "2k", "1k", "0.5k"]
 Value = TypeVar("Value", bound=str)
 
 _UNSAFE_CHARACTERS = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*]')
-_DEVICE_NAME = re.compile(r"(?i)(con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(\..*)?")
+_DEVICE_NAME = re.compile(
+    r"(?i)(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³]) *(\..*)?"
+)
 _MAX_NAME_BYTES = 240
 """Under the 255 bytes most file systems allow, to leave room for a number."""
 _MAX_EXTENSION_BYTES = 16
