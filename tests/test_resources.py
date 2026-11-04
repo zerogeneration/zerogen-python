@@ -13,9 +13,12 @@ import httpx
 import pytest
 from conftest import MakeClient
 from fakes import (
+    DECLARATION,
     Fake,
     api_error,
+    asset,
     collect,
+    declared,
     first_page,
     json_response,
     model,
@@ -28,7 +31,7 @@ from fakes import (
 )
 
 from zerogen import AsyncZeroGen, WaitCancelledError, ZeroGen, ZeroGenError, has_ended
-from zerogen.types import Run
+from zerogen.types import CreateUploadRequestNaming, Run
 
 HELLO = b"hello"
 HELLO_SHA256 = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
@@ -350,9 +353,112 @@ def test_reuses_an_identical_file_the_project_already_has(
     with path.open("rb") as file:
         ready = run(zerogen.uploads.upload(file))
     assert ready.asset_id == "a0"
+    assert not ready.declaration_recorded
     assert calls[0].json()["filename"] == "clip.mov"
     assert calls[0].json()["contentType"] == "video/quicktime"
     assert len(calls) == 1
+
+
+NAMING: CreateUploadRequestNaming = {
+    "presetId": None,
+    "definition": {"delimiter": "_", "fields": []},
+    "values": {"shot": "SH010"},
+}
+
+
+def test_declares_with_the_upload_and_names_the_new_asset(make_client: MakeClient) -> None:
+    zerogen, calls = make_client(
+        json_response(upload(status="upload_required", assetId=None, upload=TARGET), 201),
+        httpx.Response(200),
+        json_response(upload(assetId="a1", runId="g9")),
+    )
+    ready = run(
+        zerogen.uploads.upload(
+            HELLO,
+            filename="save.png",
+            declaration=DECLARATION,
+            naming=NAMING,
+        )
+    )
+    assert ready.declaration_recorded
+    assert ready.run_id == "g9"
+    assert calls[0].json() == {
+        "filename": "save.png",
+        "contentType": "image/png",
+        "sizeBytes": 5,
+        "sha256": HELLO_SHA256,
+        **DECLARATION,
+        "naming": NAMING,
+    }
+    assert [call.url for call in calls][2:] == ["https://api.zerogen.com/v1/uploads/u1/complete"]
+
+
+def test_declares_the_identical_file_the_project_already_had(make_client: MakeClient) -> None:
+    declaration = {"assetId": "a0", "runId": "g9", "asset": asset("a0", declared=declared())}
+    zerogen, calls = make_client(json_response(upload(assetId="a0")), json_response(declaration))
+    ready = run(
+        zerogen.uploads.upload(
+            HELLO,
+            filename="save.png",
+            declaration=DECLARATION,
+            naming=NAMING,
+        )
+    )
+    assert ready.asset_id == "a0"
+    assert ready.declaration_recorded
+    assert ready.run_id is None
+    declare = calls[1]
+    assert (declare.method, declare.url) == (
+        "POST",
+        "https://api.zerogen.com/v1/assets/a0/declaration",
+    )
+    assert declare.json() == DECLARATION
+    assert len(declare.headers["idempotency-key"]) == 36
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "param"),
+    [
+        (409, "invalid_state", None),
+        (403, "permission_denied", None),
+        (400, "validation_failed", "sources"),
+    ],
+    ids=["declared or generated", "someone else's upload", "its own source"],
+)
+def test_keeps_a_reused_files_lineage_when_it_cant_take_the_declaration(
+    make_client: MakeClient, status: int, code: str, param: str | None
+) -> None:
+    zerogen, calls = make_client(
+        json_response(upload(status="upload_required", assetId=None, upload=TARGET), 201),
+        httpx.Response(200),
+        json_response(upload(assetId="a0")),
+        api_error(status, code, param=param),
+    )
+    ready = run(
+        zerogen.uploads.upload(
+            HELLO,
+            filename="save.png",
+            declaration=DECLARATION,
+        )
+    )
+    assert ready.asset_id == "a0"
+    assert not ready.declaration_recorded
+    assert calls[3].url == "https://api.zerogen.com/v1/assets/a0/declaration"
+
+
+def test_reports_a_declaration_the_api_fails_for_another_reason(make_client: MakeClient) -> None:
+    zerogen, _ = make_client(
+        json_response(upload(assetId="a0")), api_error(400, "validation_failed", param="tool")
+    )
+    error = raises(
+        ZeroGenError,
+        lambda: zerogen.uploads.upload(
+            HELLO,
+            filename="save.png",
+            declaration=DECLARATION,
+        ),
+    )
+    assert (error.code, error.param) == ("validation_failed", "tool")
 
 
 def test_needs_a_name_and_a_type_it_can_send(make_client: MakeClient) -> None:

@@ -3,10 +3,11 @@
 Run it with `uv run scripts/generate.py`. With `--fetch`, it first downloads the
 published OpenAPI document (or ZEROGEN_OPENAPI_URL) into openapi.json.
 
-Request bodies become TypedDicts with the API's own field names. Responses become
-pydantic models with snake_case fields. Response models drop the document's
-constraints and accept enum values and fields they don't know yet, so a client
-keeps working when the API adds one.
+Request bodies become TypedDicts with the API's own field names, without the
+document's rules about which fields go together, which a TypedDict can't state.
+Responses become pydantic models with snake_case fields. Response models drop the
+document's constraints and accept enum values and fields they don't know yet, so
+a client keeps working when the API adds one.
 """
 
 from __future__ import annotations
@@ -66,7 +67,7 @@ def main() -> None:
     spec = json.loads(SPEC.read_text(encoding="utf-8"))
     schemas: dict[str, Any] = spec["components"]["schemas"]
     names = request_names(spec)
-    requests = {name: schema for name, schema in schemas.items() if name in names}
+    requests = {name: structural(schema) for name, schema in schemas.items() if name in names}
     responses = {name: loosen(schema) for name, schema in schemas.items() if name not in names}
     with tempfile.TemporaryDirectory() as scratch:
         generate(
@@ -108,6 +109,26 @@ def request_names(spec: dict[str, Any]) -> set[str]:
             if ref is not None:
                 names.add(ref.rsplit("/", 1)[-1])
     return names
+
+
+def structural(schema: Any) -> Any:
+    """Drops a request schema's rules about which fields go together, such as "any of these
+    fields needs `tool`": an `anyOf`, `oneOf` or `allOf` of `required` and `not` clauses only.
+    The generator would otherwise make a TypedDict for each case. The API still checks them."""
+    if isinstance(schema, list):
+        return [structural(value) for value in cast("list[Any]", schema)]
+    if not isinstance(schema, dict):
+        return schema
+    out: dict[str, Any] = {}
+    for key, value in cast("dict[str, Any]", schema).items():
+        if key in ("anyOf", "oneOf", "allOf") and all(
+            isinstance(clause, dict)
+            and cast("dict[str, Any]", clause).keys() <= {"required", "not"}
+            for clause in cast("list[Any]", value)
+        ):
+            continue
+        out[key] = structural(value)
+    return out
 
 
 def loosen(schema: Any) -> Any:
