@@ -17,8 +17,8 @@ also need the fields the API has added since 0.2.1, such as `createdBy` and
   declaration, once.
 - Assets have `declared`, the declaration as the uploader made it, and
   `assets.get(..., include_workflow=True)` reads its `workflow`. Lineage edges
-  have `declared`, and uploads have `run_id`, the run that recorded their
-  declaration.
+  have `declared`, and uploads have `run_id`, the run that recorded the
+  declaration sent with them.
 - Downloads return the file's `filename`, `mime_type` and `size_bytes`.
   `assets.download` returns a `Download`, with the bytes in `content`, or a
   `DownloadInfo` when it streams the file into a path or file object.

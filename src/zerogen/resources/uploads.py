@@ -56,7 +56,9 @@ class ReadyUpload(Upload):
     declaration_recorded: bool = False
     """Whether ZeroGen recorded the `declaration` given to `uploads.upload`: with the upload, or
     afterward on the identical file the project already had. False without a declaration, or
-    when that file already had one, was made in ZeroGen, or was uploaded by someone else."""
+    when that file already had one, was made in ZeroGen, was uploaded by someone else, or is a
+    declared source or what one was made from. `run_id` stays as the API returned it, so after
+    a declaration on that existing file it's None, and the run is on the asset."""
 
 
 class _File:

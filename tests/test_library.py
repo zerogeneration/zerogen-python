@@ -290,16 +290,21 @@ def test_retries_a_folder_deletion_with_the_same_idempotency_key_and_can_undo_it
     zerogen, calls = make_client(
         api_error(503, "unavailable", retryable=True),
         json_response(FOLDER_DELETE),
+        json_response(FOLDER_DELETE),
         json_response({"rootId": "f1", "parentId": "f0"}),
     )
-    deleted = run(zerogen.folders.delete("p1", "f1", assets="trash", idempotency_key="job-1"))
+    deleted = run(zerogen.folders.delete("p1", "f1", assets="trash"))
     assert [call.url for call in calls] == [f"{API}/projects/p1/folders/f1?assets=trash"] * 2
-    assert [call.headers["idempotency-key"] for call in calls] == ["job-1", "job-1"]
+    first, retry = (call.headers["idempotency-key"] for call in calls)
+    assert first == retry
+    assert len(first) == 36
+    run(zerogen.folders.delete("p1", "f1", assets="keep", idempotency_key="job-1"))
+    assert calls[2].headers["idempotency-key"] == "job-1"
     assert (deleted.folder_id, deleted.event_id) == ("f1", "e1")
     assert deleted.undo_until == datetime(2026, 10, 25, 1, tzinfo=timezone.utc)
     restored = run(zerogen.folders.restore("p1", {"eventId": deleted.event_id}))
     assert (restored.root_id, restored.parent_id) == ("f1", "f0")
-    assert calls[2].json() == {"eventId": "e1"}
+    assert calls[3].json() == {"eventId": "e1"}
 
 
 def test_reads_each_assets_preview_or_null_until_its_made(make_client: MakeClient) -> None:
