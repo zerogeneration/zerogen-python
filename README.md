@@ -166,9 +166,10 @@ outputs are named.
 
 When the project already has an identical file, the upload returns that asset,
 and its lineage stands. If you uploaded it and it has no declaration yet, the
-upload declares it. `declaration_recorded` says whether ZeroGen recorded your
-declaration. To declare a file you uploaded earlier, use `assets.declare`: an
-asset takes one declaration, from its uploader.
+upload declares it, unless a declared source is that file or was made from it.
+`declaration_recorded` says whether ZeroGen recorded your declaration. To declare
+a file you uploaded earlier, use `assets.declare`: an asset takes one
+declaration, from its uploader.
 
 `assets.get` returns an asset's declaration in `declared`, and, with
 `include_workflow=True`, its workflow in `workflow`. Both are untrusted

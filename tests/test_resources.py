@@ -361,7 +361,23 @@ def test_reuses_an_identical_file_the_project_already_has(
 
 NAMING: CreateUploadRequestNaming = {
     "presetId": None,
-    "definition": {"delimiter": "_", "fields": []},
+    "definition": {
+        "delimiter": "_",
+        "fields": [
+            {
+                "id": "shot",
+                "kind": "shot",
+                "label": "Shot",
+                "prefix": "SH",
+                "padding": 3,
+                "step": 10,
+                "sequence": "number",
+                "artistFormat": "initials",
+                "dateFormat": "YYYYMMDD",
+                "defaultValue": "",
+            }
+        ],
+    },
     "values": {"shot": "SH010"},
 }
 
