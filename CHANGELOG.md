@@ -4,9 +4,21 @@
 
 This release breaks compatibility with 0.2: `assets.download` returns a
 `Download` instead of the file's bytes, which are now its `content`. Its models
-also need the fields the API has added since 0.2.1, such as `createdBy`, so it
-can't read an older deployment of the API.
+also need the fields the API has added since 0.2.1, such as `createdBy` and
+`declared`, so it can't read an older deployment of the API.
 
+- Declared provenance. `uploads.upload` takes a `declaration` of what the file
+  was made from and with: `tool`, and any of `sources`, `prompt`, `workflow`,
+  `externalRef` and `occurredAt`. With it, `naming` names the new asset with a
+  naming preset. When the project already has the file, `upload` declares
+  that asset instead, if it has no declaration and you uploaded it, and
+  `declaration_recorded` says whether ZeroGen recorded yours.
+- `assets.declare` declares an upload that became ready without a
+  declaration, once.
+- Assets have `declared`, the declaration as the uploader made it, and
+  `assets.get(..., include_workflow=True)` reads its `workflow`. Lineage edges
+  have `declared`, and uploads have `run_id`, the run that recorded their
+  declaration.
 - Downloads return the file's `filename`, `mime_type` and `size_bytes`.
   `assets.download` returns a `Download`, with the bytes in `content`, or a
   `DownloadInfo` when it streams the file into a path or file object.

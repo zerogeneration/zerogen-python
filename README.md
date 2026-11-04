@@ -134,6 +134,46 @@ seek. It takes the media type from the filename's extension, or from
 `content_type`. It sends the file's SHA-256 digest, so a file the project
 already has is reused instead of uploaded again.
 
+## Declared provenance
+
+When you upload a file made outside ZeroGen, such as a ComfyUI result, the
+upload can declare what it was made from and with. ZeroGen records the
+declaration as a no-charge run, so the asset's lineage shows its sources, and
+its details show the tool, prompt and workflow as a declaration, unchecked:
+
+```python
+saved = zerogen.uploads.upload(
+    "render.png",
+    declaration={
+        "tool": {
+            "name": "comfyui",
+            "version": "0.43.0",
+            "integration": {"name": "zerogen-nodes", "version": "0.1.0"},
+        },
+        "sources": [{"asset": upload.asset_id, "role": "reference"}],
+        "prompt": "A lighthouse at dawn",
+        "externalRef": {"system": "comfyui", "id": "prompt-1"},
+    },
+)
+print(saved.declaration_recorded)
+```
+
+A declaration takes `tool` and any of `sources`, `prompt`, `workflow`, a JSON
+object of up to 256 KiB, `externalRef` and `occurredAt`. Declaring `sources`
+needs the `library:read` scope as well as `uploads:create`. With a
+declaration, `naming` names the new asset with a naming preset, as a run's
+outputs are named.
+
+When the project already has an identical file, the upload returns that asset,
+and its lineage stands. If you uploaded it and it has no declaration yet, the
+upload declares it. `declaration_recorded` says whether ZeroGen recorded your
+declaration. To declare a file you uploaded earlier, use `assets.declare`: an
+asset takes one declaration, from its uploader.
+
+`assets.get` returns an asset's declaration in `declared`, and, with
+`include_workflow=True`, its workflow in `workflow`. Both are untrusted
+content.
+
 ## Library
 
 Read and organize your organization's Library: `projects`, `assets`,

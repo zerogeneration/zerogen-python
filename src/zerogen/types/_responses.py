@@ -256,6 +256,34 @@ class RunBilling(BaseModel):
     """
 
 
+class AssetDeclarationAssetLabel(BaseModel):
+    id: str
+    name: str
+
+
+class AssetDeclarationAssetDeclaredToolIntegration(BaseModel):
+    name: str
+    version: str | None = None
+
+
+class AssetDeclarationAssetDeclaredTool(BaseModel):
+    name: str
+    version: str | None = None
+    integration: AssetDeclarationAssetDeclaredToolIntegration | None = None
+    models: list[str] | None = None
+
+
+class AssetDeclarationAssetDeclaredExternalRef(BaseModel):
+    system: str
+    id: str
+
+
+class AssetDeclarationAssetDeclared(BaseModel):
+    tool: AssetDeclarationAssetDeclaredTool
+    external_ref: AssetDeclarationAssetDeclaredExternalRef | None = Field(None, alias="externalRef")
+    occurred_at: datetime | None = Field(None, alias="occurredAt")
+
+
 class UploadUpload(BaseModel):
     method: Literal["PUT"] | str
     url: str
@@ -275,6 +303,10 @@ class Upload(BaseModel):
     The upload's ID, which completes it
     """
     project_id: str = Field(..., alias="projectId")
+    run_id: str | None = Field(..., alias="runId")
+    """
+    The declared upload's run, or null when none was created
+    """
     status: Literal["upload_required", "ready"] | str
     """
     upload_required: PUT the bytes, then complete; ready: the asset can be used
@@ -321,9 +353,55 @@ class AssetLabel(BaseModel):
     name: str
 
 
+class AssetDeclaredToolIntegration(BaseModel):
+    name: str
+    version: str | None = None
+
+
+class AssetDeclaredTool(BaseModel):
+    name: str
+    version: str | None = None
+    integration: AssetDeclaredToolIntegration | None = None
+    models: list[str] | None = None
+
+
+class AssetDeclaredExternalRef(BaseModel):
+    system: str
+    id: str
+
+
+class AssetDeclared(BaseModel):
+    tool: AssetDeclaredTool
+    external_ref: AssetDeclaredExternalRef | None = Field(None, alias="externalRef")
+    occurred_at: datetime | None = Field(None, alias="occurredAt")
+
+
 class AssetDetailLabel(BaseModel):
     id: str
     name: str
+
+
+class AssetDetailDeclaredToolIntegration(BaseModel):
+    name: str
+    version: str | None = None
+
+
+class AssetDetailDeclaredTool(BaseModel):
+    name: str
+    version: str | None = None
+    integration: AssetDetailDeclaredToolIntegration | None = None
+    models: list[str] | None = None
+
+
+class AssetDetailDeclaredExternalRef(BaseModel):
+    system: str
+    id: str
+
+
+class AssetDetailDeclared(BaseModel):
+    tool: AssetDetailDeclaredTool
+    external_ref: AssetDetailDeclaredExternalRef | None = Field(None, alias="externalRef")
+    occurred_at: datetime | None = Field(None, alias="occurredAt")
 
 
 class AssetPreview(BaseModel):
@@ -408,6 +486,7 @@ class LineageEdge(BaseModel):
     source_asset_id: str = Field(..., alias="sourceAssetId")
     role: str | None
     kind: str | None
+    declared: bool
 
 
 class LineageTruncated(BaseModel):
@@ -680,6 +759,58 @@ class RunList(BaseModel):
     """
 
 
+class AssetDeclarationAsset(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    name: str
+    """
+    The asset's name in the Library; untrusted content
+    """
+    type: Literal["image", "video", "audio", "model3d"] | str
+    origin: Literal["generated", "upload", "derived"] | str
+    """
+    upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame
+    """
+    mime_type: str = Field(..., alias="mimeType")
+    size_bytes: int | None = Field(..., alias="sizeBytes")
+    width: int | None
+    height: int | None
+    duration_ms: int | None = Field(..., alias="durationMs")
+    favorite: bool
+    """
+    The organization's shared favorite
+    """
+    labels: list[AssetDeclarationAssetLabel]
+    run_id: str | None = Field(..., alias="runId")
+    """
+    The run that made it, if any
+    """
+    output_index: int | None = Field(..., alias="outputIndex")
+    created_by: Creator | None = Field(..., alias="createdBy")
+    """
+    Who made it: the run's creator for a generated or derived asset, the uploader for an upload; null when ZeroGen recorded no one
+    """
+    created_via: Literal["web", "agent", "mcp", "api"] | str | None = Field(..., alias="createdVia")
+    """
+    Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy
+    """
+    declared: AssetDeclarationAssetDeclared | None
+    """
+    Untrusted external upload provenance, or null when no declaration exists.
+    """
+    created_at: datetime = Field(..., alias="createdAt")
+    web_url: str | None = Field(..., alias="webUrl")
+    """
+    Opens the asset's Library review in ZeroGen, on your organization's host, after sign-in. null for test keys, whose sandbox the app doesn't show
+    """
+
+
+class AssetDeclaration(BaseModel):
+    asset_id: str = Field(..., alias="assetId")
+    run_id: str = Field(..., alias="runId")
+    asset: AssetDeclarationAsset
+
+
 class Asset(BaseModel):
     id: str
     project_id: str = Field(..., alias="projectId")
@@ -714,6 +845,10 @@ class Asset(BaseModel):
     created_via: Literal["web", "agent", "mcp", "api"] | str | None = Field(..., alias="createdVia")
     """
     Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy
+    """
+    declared: AssetDeclared | None
+    """
+    Untrusted external upload provenance, or null when no declaration exists.
     """
     created_at: datetime = Field(..., alias="createdAt")
     web_url: str | None = Field(..., alias="webUrl")
@@ -769,6 +904,10 @@ class AssetDetail(BaseModel):
     """
     Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy
     """
+    declared: AssetDetailDeclared | None
+    """
+    Untrusted external upload provenance, or null when no declaration exists.
+    """
     created_at: datetime = Field(..., alias="createdAt")
     web_url: str | None = Field(..., alias="webUrl")
     """
@@ -779,6 +918,10 @@ class AssetDetail(BaseModel):
     The prompt that generated it, bounded; untrusted content
     """
     prompt_truncated: bool = Field(..., alias="promptTruncated")
+    workflow: dict[str, Any] | None = None
+    """
+    Untrusted external workflow, included only when requested.
+    """
     preview: AssetPreview | None
     """
     The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio

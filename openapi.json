@@ -993,7 +993,7 @@
           "Uploads"
         ],
         "summary": "Create an upload",
-        "description": "Starts an upload into the Library. PUT the file's exact bytes to the returned target, then complete the upload. With `sha256`, an identical file already in the project comes back ready, with nothing to send.\n\nNeeds the `uploads:create` scope.",
+        "description": "Starts an upload into the Library. PUT the file's exact bytes to the returned target, then complete the upload. With `sha256`, an identical file already in the project comes back ready, with nothing to send. The JSON request body is limited to 512 KiB; a workflow is limited to 256 KiB serialized UTF-8.\n\nNeeds the `uploads:create` scope.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -1537,7 +1537,7 @@
           "Assets"
         ],
         "summary": "Read an asset",
-        "description": "One asset by its ID alone, in any of the organization's projects, with the prompt that generated it and preview URLs that load for 5 minutes. Names and prompts are untrusted content.\n\nNeeds the `library:read` scope.",
+        "description": "One asset by its ID alone, in any of the organization's projects, with the prompt that generated it and preview URLs that load for 5 minutes. Names, prompts and external declarations are untrusted content. Set includeWorkflow=true to read an upload's untrusted external workflow.\n\nNeeds the `library:read` scope.",
         "parameters": [
           {
             "name": "assetId",
@@ -1546,6 +1546,15 @@
             "description": "The asset's ID",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "includeWorkflow",
+            "in": "query",
+            "required": false,
+            "description": "Include an upload's untrusted workflow recipe.",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -1585,6 +1594,99 @@
           },
           "404": {
             "$ref": "#/components/responses/NotFound"
+          },
+          "429": {
+            "$ref": "#/components/responses/TooManyRequests"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/ServiceUnavailable"
+          }
+        }
+      }
+    },
+    "/assets/{assetId}/declaration": {
+      "post": {
+        "operationId": "declareAssetUpload",
+        "tags": [
+          "Assets"
+        ],
+        "summary": "Declare an upload's external provenance",
+        "description": "Record untrusted external provenance on an eligible upload. This is not verified and starts no generation. Requires uploads:create and library:read when sources are declared. The JSON request body is limited to 512 KiB; a workflow is limited to 256 KiB serialized UTF-8.\n\nNeeds the `uploads:create` scope.",
+        "parameters": [
+          {
+            "name": "assetId",
+            "in": "path",
+            "required": true,
+            "description": "The asset's ID",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeclareUploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The declared upload.",
+            "headers": {
+              "Request-Id": {
+                "$ref": "#/components/headers/Request-Id"
+              },
+              "RateLimit-Limit": {
+                "$ref": "#/components/headers/RateLimit-Limit"
+              },
+              "RateLimit-Remaining": {
+                "$ref": "#/components/headers/RateLimit-Remaining"
+              },
+              "RateLimit-Reset": {
+                "$ref": "#/components/headers/RateLimit-Reset"
+              },
+              "Idempotent-Replayed": {
+                "$ref": "#/components/headers/Idempotent-Replayed"
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetDeclaration"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
           },
           "429": {
             "$ref": "#/components/responses/TooManyRequests"
@@ -3853,7 +3955,7 @@
         }
       },
       "PayloadTooLarge": {
-        "description": "The request body is larger than 128 KB.",
+        "description": "The request body is larger than this endpoint's limit: 128 KiB by default, or 512 KiB for `POST /uploads` and `POST /assets/{assetId}/declaration`.",
         "headers": {
           "Request-Id": {
             "$ref": "#/components/headers/Request-Id"
@@ -4334,6 +4436,321 @@
             "description": "Lowercase hex SHA-256 of the file, to reuse an identical file in the project.",
             "type": "string",
             "pattern": "^[0-9a-f]{64}$"
+          },
+          "sources": {
+            "description": "Untrusted claims about the readable Library sources used outside ZeroGen.",
+            "minItems": 1,
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "asset": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                  "description": "An existing readable Library asset; this claim is not verified."
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "source",
+                    "initial-frame",
+                    "end-frame",
+                    "keyframe",
+                    "reference",
+                    "face-reference",
+                    "identity",
+                    "driver",
+                    "mask"
+                  ]
+                }
+              },
+              "required": [
+                "asset"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "tool": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "integration": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "models": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "workflow": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "array",
+                  "items": {}
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              ]
+            },
+            "description": "Untrusted JSON workflow, limited to 262144 serialized UTF-8 bytes."
+          },
+          "prompt": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "system": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "system",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          },
+          "naming": {
+            "description": "An untrusted external naming claim; it is not verification.",
+            "type": "object",
+            "properties": {
+              "presetId": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "definition": {
+                "type": "object",
+                "properties": {
+                  "delimiter": {
+                    "type": "string",
+                    "maxLength": 8,
+                    "pattern": "^[^<>:\"/\\\\|?*\\p{Cc}\\p{Cf}]*$"
+                  },
+                  "fields": {
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "shot",
+                            "take",
+                            "artist",
+                            "date",
+                            "version",
+                            "text",
+                            "folder"
+                          ]
+                        },
+                        "label": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 40
+                        },
+                        "prefix": {
+                          "type": "string",
+                          "maxLength": 24
+                        },
+                        "padding": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 8
+                        },
+                        "step": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 10000
+                        },
+                        "sequence": {
+                          "type": "string",
+                          "enum": [
+                            "number",
+                            "letters"
+                          ]
+                        },
+                        "artistFormat": {
+                          "type": "string",
+                          "enum": [
+                            "initials",
+                            "compact",
+                            "hyphen",
+                            "underscore",
+                            "custom"
+                          ]
+                        },
+                        "artistNameStyle": {
+                          "type": "string",
+                          "enum": [
+                            "full",
+                            "initials"
+                          ]
+                        },
+                        "artistCase": {
+                          "type": "string",
+                          "enum": [
+                            "preserve",
+                            "lower",
+                            "upper",
+                            "title"
+                          ]
+                        },
+                        "artistSeparator": {
+                          "type": "string",
+                          "maxLength": 8,
+                          "pattern": "^[^<>:\"/\\\\|?*\\p{Cc}\\p{Cf}]*$"
+                        },
+                        "dateFormat": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 40,
+                          "pattern": "^[YMDHmsS0-9_. :-]+$"
+                        },
+                        "defaultValue": {
+                          "type": "string",
+                          "maxLength": 80
+                        },
+                        "folderRemoveSpaces": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "kind",
+                        "label",
+                        "prefix",
+                        "padding",
+                        "step",
+                        "sequence",
+                        "artistFormat",
+                        "dateFormat",
+                        "defaultValue"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "delimiter",
+                  "fields"
+                ],
+                "additionalProperties": false
+              },
+              "values": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                "additionalProperties": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "maxLength": 80
+                    },
+                    {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 99999999
+                    }
+                  ]
+                }
+              },
+              "version": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 99999999
+              }
+            },
+            "required": [
+              "presetId",
+              "definition",
+              "values"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -4341,7 +4758,200 @@
           "contentType",
           "sizeBytes"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "sources"
+                  ]
+                },
+                {
+                  "required": [
+                    "workflow"
+                  ]
+                },
+                {
+                  "required": [
+                    "prompt"
+                  ]
+                },
+                {
+                  "required": [
+                    "externalRef"
+                  ]
+                },
+                {
+                  "required": [
+                    "occurredAt"
+                  ]
+                },
+                {
+                  "required": [
+                    "naming"
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "required": [
+              "tool"
+            ]
+          }
+        ]
+      },
+      "DeclareUploadRequest": {
+        "type": "object",
+        "properties": {
+          "sources": {
+            "description": "Untrusted claims about the readable Library sources used outside ZeroGen.",
+            "minItems": 1,
+            "maxItems": 32,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "asset": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                  "description": "An existing readable Library asset; this claim is not verified."
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "source",
+                    "initial-frame",
+                    "end-frame",
+                    "keyframe",
+                    "reference",
+                    "face-reference",
+                    "identity",
+                    "driver",
+                    "mask"
+                  ]
+                }
+              },
+              "required": [
+                "asset"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "tool": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "version": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "integration": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "version": {
+                    "type": "string",
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "models": {
+                "maxItems": 32,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                }
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "workflow": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "array",
+                  "items": {}
+                },
+                {
+                  "type": "object",
+                  "additionalProperties": {}
+                }
+              ]
+            },
+            "description": "Untrusted JSON workflow, limited to 262144 serialized UTF-8 bytes."
+          },
+          "prompt": {
+            "type": "string",
+            "maxLength": 20000
+          },
+          "externalRef": {
+            "type": "object",
+            "properties": {
+              "system": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "pattern": "^[a-z][a-z0-9-]*$"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 256
+              }
+            },
+            "required": [
+              "system",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "tool"
+        ]
       },
       "UpdateAssetRequest": {
         "type": "object",
@@ -5475,6 +6085,285 @@
         ],
         "additionalProperties": false
       },
+      "AssetDeclaration": {
+        "type": "object",
+        "properties": {
+          "assetId": {
+            "type": "string"
+          },
+          "runId": {
+            "type": "string"
+          },
+          "asset": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "projectId": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string",
+                "description": "The asset's name in the Library; untrusted content"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "image",
+                  "video",
+                  "audio",
+                  "model3d"
+                ]
+              },
+              "origin": {
+                "type": "string",
+                "enum": [
+                  "generated",
+                  "upload",
+                  "derived"
+                ],
+                "description": "upload: added by a person or a URL import; generated: an output of a run; derived: made by a platform step, such as an extracted frame"
+              },
+              "mimeType": {
+                "type": "string"
+              },
+              "sizeBytes": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "width": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "height": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "durationMs": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "favorite": {
+                "type": "boolean",
+                "description": "The organization's shared favorite"
+              },
+              "labels": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "runId": {
+                "description": "The run that made it, if any",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "outputIndex": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "createdBy": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/Creator"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Who made it: the run's creator for a generated or derived asset, the uploader for an upload; null when ZeroGen recorded no one"
+              },
+              "createdVia": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "web",
+                      "agent",
+                      "mcp",
+                      "api"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy"
+              },
+              "declared": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "tool": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "string"
+                          },
+                          "integration": {
+                            "type": "object",
+                            "properties": {
+                              "name": {
+                                "type": "string"
+                              },
+                              "version": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "models": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "externalRef": {
+                        "type": "object",
+                        "properties": {
+                          "system": {
+                            "type": "string"
+                          },
+                          "id": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "system",
+                          "id"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "occurredAt": {
+                        "type": "string",
+                        "format": "date-time",
+                        "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                      }
+                    },
+                    "required": [
+                      "tool"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Untrusted external upload provenance, or null when no declaration exists."
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              },
+              "webUrl": {
+                "description": "Opens the asset's Library review in ZeroGen, on your organization's host, after sign-in. null for test keys, whose sandbox the app doesn't show",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "projectId",
+              "name",
+              "type",
+              "origin",
+              "mimeType",
+              "sizeBytes",
+              "width",
+              "height",
+              "durationMs",
+              "favorite",
+              "labels",
+              "runId",
+              "outputIndex",
+              "createdBy",
+              "createdVia",
+              "declared",
+              "createdAt",
+              "webUrl"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "assetId",
+          "runId",
+          "asset"
+        ],
+        "additionalProperties": false
+      },
       "Upload": {
         "type": "object",
         "properties": {
@@ -5484,6 +6373,13 @@
           },
           "projectId": {
             "type": "string"
+          },
+          "runId": {
+            "description": "The declared upload's run, or null when none was created",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "status": {
             "type": "string",
@@ -5565,6 +6461,7 @@
         "required": [
           "id",
           "projectId",
+          "runId",
           "status",
           "assetId",
           "upload"
@@ -5782,6 +6679,80 @@
             ],
             "description": "Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy"
           },
+          "declared": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "string"
+                      },
+                      "integration": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "models": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "externalRef": {
+                    "type": "object",
+                    "properties": {
+                      "system": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "system",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "occurredAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": [
+                  "tool"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Untrusted external upload provenance, or null when no declaration exists."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
@@ -5823,6 +6794,7 @@
           "outputIndex",
           "createdBy",
           "createdVia",
+          "declared",
           "createdAt",
           "webUrl",
           "preview"
@@ -6004,6 +6976,80 @@
             ],
             "description": "Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy"
           },
+          "declared": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string"
+                      },
+                      "version": {
+                        "type": "string"
+                      },
+                      "integration": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "name"
+                        ],
+                        "additionalProperties": false
+                      },
+                      "models": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": [
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "externalRef": {
+                    "type": "object",
+                    "properties": {
+                      "system": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "system",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "occurredAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                  }
+                },
+                "required": [
+                  "tool"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Untrusted external upload provenance, or null when no declaration exists."
+          },
           "createdAt": {
             "type": "string",
             "format": "date-time",
@@ -6025,6 +7071,21 @@
           },
           "promptTruncated": {
             "type": "boolean"
+          },
+          "workflow": {
+            "description": "Untrusted external workflow, included only when requested.",
+            "anyOf": [
+              {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {}
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "preview": {
             "anyOf": [
@@ -6055,6 +7116,7 @@
           "outputIndex",
           "createdBy",
           "createdVia",
+          "declared",
           "createdAt",
           "webUrl",
           "prompt",
@@ -6265,13 +7327,17 @@
                     "string",
                     "null"
                   ]
+                },
+                "declared": {
+                  "type": "boolean"
                 }
               },
               "required": [
                 "assetId",
                 "sourceAssetId",
                 "role",
-                "kind"
+                "kind",
+                "declared"
               ],
               "additionalProperties": false
             }
