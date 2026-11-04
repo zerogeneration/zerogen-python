@@ -4089,7 +4089,7 @@
           },
           "prompt": {
             "type": "string",
-            "maxLength": 20000
+            "maxLength": 32000
           },
           "inputs": {
             "maxItems": 50,
@@ -4550,7 +4550,7 @@
           },
           "prompt": {
             "type": "string",
-            "maxLength": 20000
+            "maxLength": 32000
           },
           "externalRef": {
             "type": "object",
@@ -4919,7 +4919,7 @@
           },
           "prompt": {
             "type": "string",
-            "maxLength": 20000
+            "maxLength": 32000
           },
           "externalRef": {
             "type": "object",
