@@ -18,6 +18,8 @@ Create an API key in ZeroGen under **Settings → API keys**, and set it as
 `ZEROGEN_API_KEY`.
 
 ```python
+import os
+
 from zerogen import ZeroGen
 
 zerogen = ZeroGen()  # Reads ZEROGEN_API_KEY.
@@ -26,6 +28,7 @@ run = zerogen.runs.create_and_wait(
     {"model": "openai/gpt-image-2/generate", "prompt": "A lighthouse at dawn"}
 )
 
+os.makedirs("downloads", exist_ok=True)
 for output in run.outputs:
     if output.asset:
         print(output.asset.id, output.asset.mime_type)
@@ -321,8 +324,8 @@ untrusted content.
 To download an asset's original file, use `assets.download`. It returns the
 file's bytes in `content`, with its `filename`, `mime_type` and `size_bytes`.
 Given a path or a binary file object, it streams the file there instead, and
-returns the rest. `assets.download_to` saves the file in a directory and
-returns its `path`:
+returns the rest. `assets.download_to` saves the file in a directory, which
+must exist, and returns its `path`:
 
 ```python
 image = zerogen.assets.download(asset_id)
