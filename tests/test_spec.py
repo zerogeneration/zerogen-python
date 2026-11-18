@@ -28,9 +28,12 @@ SPEC: dict[str, Any] = json.loads(
 )
 COMPOSITE = {
     "runs.create_and_wait",
+    "runs.download_output",
+    "runs.download_output_to",
     "uploads.upload",
     "assets.download",
     "assets.download_to",
+    "assets.transform_and_wait",
     "folders.ensure_path",
 }
 """Methods made of other methods, which this checks instead."""
@@ -241,7 +244,7 @@ def test_each_method_sends_its_operation_as_the_spec_defines_it(kind: str, targe
     assert bool(WAITS & kwargs.keys()) <= sent.waits <= ("Prefer" in op.headers), op.id
     assert sent.body == op.body, op.id
     assert sent.response == op.response, op.id
-    if op.method in ("POST", "DELETE"):
+    if op.method in ("POST", "PATCH", "DELETE"):
         assert "Idempotency-Key" in op.headers, op.id
     for name, hint in kwargs.items():
         if name in WAITS:

@@ -7,13 +7,14 @@ import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import httpx
 import pytest
 from conftest import MakeClient
 from fakes import (
     DECLARATION,
+    ENDED_AT,
     Fake,
     api_error,
     asset,
@@ -22,16 +23,36 @@ from fakes import (
     first_page,
     json_response,
     model,
+    page,
     preview,
     raises,
     run,
     run_body,
     run_output,
+    transform_body,
     upload,
 )
+from typing_extensions import get_type_hints
 
-from zerogen import AsyncZeroGen, WaitCancelledError, ZeroGen, ZeroGenError, has_ended
-from zerogen.types import CreateUploadRequestNaming, Run
+from zerogen import (
+    AsyncZeroGen,
+    AudioRecipe,
+    FrameRecipe,
+    ImageRecipe,
+    Lut,
+    TransformRecipe,
+    VideoRecipe,
+    WaitCancelledError,
+    ZeroGen,
+    ZeroGenError,
+    has_ended,
+)
+from zerogen.types import (
+    CreateUploadRequestNaming,
+    Run,
+    TransformAssetRequestRecipe3Convert,
+    TransformRun,
+)
 
 HELLO = b"hello"
 HELLO_SHA256 = "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
@@ -231,6 +252,130 @@ def test_reads_statuses_and_fields_it_doesnt_know_yet(make_client: MakeClient) -
     assert later.status == "paused"
     assert not has_ended(later)
     assert later.model_extra == {"priority": "high"}
+
+
+def test_stops_waiting_when_the_run_ends_with_a_status_it_doesnt_know(
+    make_client: MakeClient,
+) -> None:
+    zerogen, calls = make_client(
+        json_response(run_body(status="paused"), 202),
+        json_response(run_body(status="expired", endedAt=ENDED_AT)),
+    )
+    ended = run(zerogen.runs.wait_for("g1"))
+    assert (ended.status, ended.ended_at) == (
+        "expired",
+        datetime(2026, 10, 25, 0, 0, 10, tzinfo=timezone.utc),
+    )
+    assert has_ended(ended)
+    assert len(calls) == 2
+
+
+def test_reads_what_a_run_is_and_what_it_was_asked(make_client: MakeClient) -> None:
+    request = {
+        "model": "google/nano-banana-2/edit",
+        "prompt": "Make it dusk",
+        "inputs": [{"role": "source", "asset": "a0"}],
+        "continuation": "none",
+    }
+    zerogen, calls = make_client(
+        json_response(run_body(status="succeeded", request=request)),
+        json_response(run_body(status="queued")),
+    )
+    ended = run(zerogen.runs.get("g1"))
+    assert (ended.kind, ended.ended_at is not None) == ("generation", True)
+    assert ended.request is not None
+    again = ended.request.model_dump(by_alias=True, exclude_none=True)
+    assert again == request
+    run(zerogen.runs.create(again))  # type: ignore[arg-type]
+    assert calls[1].json() == request
+
+
+def test_quotes_with_the_inputs_a_create_would_use(make_client: MakeClient) -> None:
+    quote = {
+        "model": "a/b/edit",
+        "inputs": [{"role": "source", "asset": "a9"}],
+        "billing": {"mode": "platform", "quotedMicroUsd": 42000},
+    }
+    zerogen, calls = make_client(json_response(quote))
+    priced = run(
+        zerogen.runs.quote(
+            {"model": "a/b/edit", "inputs": [{"role": "source", "url": "https://x.test/a.png"}]}
+        )
+    )
+    assert [(i.role, i.asset) for i in priced.inputs] == [("source", "a9")]
+    assert priced.billing.quoted_micro_usd == 42000
+    assert calls[0].url == "https://api.zerogen.com/v1/runs/quote"
+
+
+def test_lists_the_organizations_runs_by_who_started_them_status_and_time(
+    make_client: MakeClient,
+) -> None:
+    zerogen, calls = make_client(json_response(page()), json_response(page()))
+    first_page(
+        zerogen.runs.list(
+            created_by=["u1", "u2"],
+            status=["failed", "cancelled"],
+            created_after=datetime(2026, 11, 10, tzinfo=timezone.utc),
+            created_before="2026-11-11T00:00:00Z",
+            limit=100,
+        )
+    )
+    first_page(zerogen.runs.list(created_by="u1", status="running"))
+    assert [call.url for call in calls] == [
+        "https://api.zerogen.com/v1/runs?createdBy=u1&createdBy=u2&status=failed&status=cancelled"
+        "&createdAfter=2026-11-10T00%3A00%3A00%2B00%3A00&createdBefore=2026-11-11T00%3A00%3A00Z"
+        "&limit=100",
+        "https://api.zerogen.com/v1/runs?createdBy=u1&status=running",
+    ]
+
+
+def test_refuses_a_time_filter_without_a_time_zone(make_client: MakeClient) -> None:
+    zerogen, calls = make_client()
+    with pytest.raises(ValueError, match="time zone"):
+        first_page(zerogen.runs.list(created_after=datetime(2026, 11, 10)))
+    assert calls == []
+
+
+def test_transforms_an_asset_and_waits_for_the_copy(make_client: MakeClient) -> None:
+    recipe: TransformRecipe = {"trim": {"startSeconds": 2, "endSeconds": 8}, "removeAudio": True}
+    zerogen, calls = make_client(
+        json_response(transform_body(status="running", reused=False), 202),
+        json_response(transform_body(status="succeeded", outputs=[run_output(0)])),
+        json_response(transform_body(status="succeeded", reused=True, outputs=[run_output(0)])),
+    )
+    ended = run(zerogen.assets.transform_and_wait("a0", {"recipe": recipe, "folderId": "f1"}))
+    assert isinstance(ended, TransformRun)
+    assert (ended.kind, ended.status, ended.reused, ended.request) == (
+        "transform",
+        "succeeded",
+        False,
+        None,
+    )
+    assert ended.outputs[0].asset is not None
+    assert ended.outputs[0].asset.id == "a1"
+    reused = run(zerogen.assets.transform("a0", {"recipe": recipe}, wait=10))
+    assert reused.reused
+    assert [f"{call.method} {call.url} {call.headers['prefer']}" for call in calls] == [
+        "POST https://api.zerogen.com/v1/assets/a0/transform wait=60",
+        "GET https://api.zerogen.com/v1/runs/g1 wait=60",
+        "POST https://api.zerogen.com/v1/assets/a0/transform wait=10",
+    ]
+    assert calls[0].json() == {"recipe": recipe, "folderId": "f1"}
+    assert "idempotency-key" not in calls[1].headers
+
+
+def test_names_each_transform_recipe_by_what_it_makes() -> None:
+    def keys(recipe: type) -> set[str]:
+        return set(get_type_hints(recipe))
+
+    assert "extractFrame" in keys(FrameRecipe)
+    assert {"crop", "convert"} <= keys(ImageRecipe)
+    assert "trim" not in keys(ImageRecipe)
+    assert {"trim", "frameRate", "reverse", "lengthen"} <= keys(VideoRecipe)
+    assert keys(AudioRecipe) == {"trim", "convert"}
+    assert "mp3" in get_args(get_type_hints(TransformAssetRequestRecipe3Convert)["format"])
+    assert set(get_args(TransformRecipe)) == {FrameRecipe, ImageRecipe, VideoRecipe, AudioRecipe}
+    assert set(Lut.model_fields) >= {"id", "input_color"}
 
 
 def test_reads_each_outputs_preview_or_null_until_its_made(make_client: MakeClient) -> None:
@@ -433,22 +578,22 @@ def test_declares_the_identical_file_the_project_already_had(make_client: MakeCl
 
 
 @pytest.mark.parametrize(
-    ("status", "code", "param"),
+    ("status", "code", "param", "reason"),
     [
-        (409, "invalid_state", None),
-        (403, "permission_denied", None),
-        (400, "validation_failed", "sources"),
+        (409, "invalid_state", None, None),
+        (403, "permission_denied", None, "not_creator"),
+        (400, "validation_failed", "sources", None),
     ],
     ids=["declared or generated", "someone else's upload", "its own source"],
 )
 def test_keeps_a_reused_files_lineage_when_it_cant_take_the_declaration(
-    make_client: MakeClient, status: int, code: str, param: str | None
+    make_client: MakeClient, status: int, code: str, param: str | None, reason: str | None
 ) -> None:
     zerogen, calls = make_client(
         json_response(upload(status="upload_required", assetId=None, upload=TARGET), 201),
         httpx.Response(200),
         json_response(upload(assetId="a0")),
-        api_error(status, code, param=param),
+        api_error(status, code, param=param, details={"reason": reason} if reason else None),
     )
     ready = run(
         zerogen.uploads.upload(
@@ -460,6 +605,23 @@ def test_keeps_a_reused_files_lineage_when_it_cant_take_the_declaration(
     assert ready.asset_id == "a0"
     assert not ready.declaration_recorded
     assert calls[3].url == "https://api.zerogen.com/v1/assets/a0/declaration"
+
+
+@pytest.mark.parametrize(
+    "details", [{"reason": "scope_required", "scope": "library:read"}, None], ids=["scope", "none"]
+)
+def test_reports_a_declaration_refused_for_a_permission_other_than_the_uploaders(
+    make_client: MakeClient, details: dict[str, Any] | None
+) -> None:
+    zerogen, _ = make_client(
+        json_response(upload(assetId="a0")), api_error(403, "permission_denied", details=details)
+    )
+    error = raises(
+        ZeroGenError,
+        lambda: zerogen.uploads.upload(HELLO, filename="save.png", declaration=DECLARATION),
+    )
+    assert error.code == "permission_denied"
+    assert error.reason == (details or {}).get("reason")
 
 
 def test_reports_a_declaration_the_api_fails_for_another_reason(make_client: MakeClient) -> None:

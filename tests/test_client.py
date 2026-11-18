@@ -100,6 +100,40 @@ def test_raises_the_error_envelope_with_its_request_id(make_client: MakeClient) 
         "req_test",
     )
     assert str(error) == "validation_failed: validation_failed message"
+    assert (error.details, error.reason) == (None, None)
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "details", "reason"),
+    [
+        (429, "rate_limited", {"reason": "running_cap"}, "running_cap"),
+        (
+            403,
+            "permission_denied",
+            {"reason": "scope_required", "scope": "runs:read"},
+            "scope_required",
+        ),
+        (403, "permission_denied", {"reason": "a_reason_added_later"}, "a_reason_added_later"),
+        (409, "invalid_state", {"approvalReason": "byok_unpriced"}, None),
+        (403, "permission_denied", {"reason": 7}, None),
+    ],
+    ids=["rate limit", "scope", "unknown reason", "no reason", "not a string"],
+)
+def test_exposes_the_errors_details_and_reason(
+    make_client: MakeClient,
+    status: int,
+    code: str,
+    details: dict[str, Any],
+    reason: str | None,
+) -> None:
+    zerogen, _ = make_client(api_error(status, code, details=details))
+    error = raises(ZeroGenError, lambda: zerogen.me(max_retries=0))
+    assert (error.status, error.code, error.details, error.reason) == (
+        status,
+        code,
+        details,
+        reason,
+    )
 
 
 def test_retries_a_retryable_response_after_retry_after_with_the_same_idempotency_key(

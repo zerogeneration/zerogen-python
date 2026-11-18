@@ -20,17 +20,24 @@ uploads and downloads on top of the types generated from it.
 - Request bodies are TypedDicts with the API's own field names, sent as
   given. Responses are pydantic models that leave out the document's
   constraints and accept enum values and fields they don't know yet, so an
-  older client keeps working when the API grows. Keep it that way.
+  older client keeps working when the API grows. Keep it that way. A wait ends
+  on a run's `endedAt`, never on a list of statuses.
+- Some generated names number a schema's variants, such as
+  `TransformAssetRequestRecipe1`. Document the hand-written aliases instead
+  (`TransformRecipe` and its forms, `Lut`). A test checks that each alias still
+  names its variant after a regeneration.
 - `ZeroGen` and `AsyncZeroGen` have the same methods. Change both. The
   `make_client` fixture runs a test once with each.
-- Every `POST` and `DELETE` sends an `Idempotency-Key` that the call's retries
-  reuse.
+- Every `POST`, `PATCH` and `DELETE` sends an `Idempotency-Key` that the call's
+  retries reuse.
   Retries follow the error's `retryable` and `Retry-After`; keep it that way.
 - Signed storage URLs, for uploads and downloads, go through the client's
   `_storage` method, which sends only the headers storage needs (never the API
   key or any caller or client headers), follows no redirect, and keeps the
-  URL's signed query out of httpx's request log. A signed URL is a credential, so never put one in an
-  error message or a log.
+  URL's signed query out of httpx's request log. A storage error quotes only
+  the S3 error's `Code` and `Message`, since the rest of its body can echo the
+  signature. A signed URL is a credential, so never put one in an error message
+  or a log.
 - Tests use a scripted httpx transport (`tests/fakes.py`) and never call the
   API.
 - The library supports Python 3.10 and later. Before you commit, run

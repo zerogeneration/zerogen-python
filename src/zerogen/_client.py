@@ -16,13 +16,15 @@ import anyio
 import httpx
 from typing_extensions import Self, Unpack
 
-from ._errors import ZeroGenConnectionError, ZeroGenError
+from ._errors import ZeroGenConnectionError, ZeroGenError, storage_error
 from ._options import PostRequestOptions, RequestOptions
 from ._pagination import AsyncPage, AsyncPaginator, Page
 from ._version import __version__
 from .resources.assets import Assets, AsyncAssets
+from .resources.attachments import AsyncAttachments, Attachments
 from .resources.folders import AsyncFolders, Folders
 from .resources.labels import AsyncLabels, Labels
+from .resources.luts import AsyncLuts, Luts
 from .resources.models import AsyncModels, Models
 from .resources.naming_presets import AsyncNamingPresets, NamingPresets
 from .resources.projects import AsyncProjects, Projects
@@ -37,7 +39,7 @@ RETRY_AFTER_MAX_SECONDS = 60.0
 Result = TypeVar("Result")
 Item = TypeVar("Item")
 Query = Mapping[str, "str | int | bool | list[str] | None"]
-Method = Literal["GET", "POST", "PATCH", "PUT", "DELETE"]
+Method = Literal["GET", "POST", "PATCH", "DELETE"]
 
 _sending_to_storage: ContextVar[bool] = ContextVar("zerogen_sending_to_storage", default=False)
 
@@ -106,7 +108,7 @@ class _BaseClient:
         if body is not None:
             headers["Content-Type"] = "application/json"
             content = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode()
-        if method in ("POST", "DELETE"):
+        if method in ("POST", "PATCH", "DELETE"):
             key = cast("PostRequestOptions", options).get("idempotency_key")
             headers["Idempotency-Key"] = key if key is not None else str(uuid.uuid4())
         if wait is not None:
@@ -136,8 +138,10 @@ class ZeroGen(_BaseClient):
     assets: Assets
     folders: Folders
     labels: Labels
+    luts: Luts
     naming_presets: NamingPresets
     skills: Skills
+    attachments: Attachments
 
     def __init__(
         self,
@@ -181,8 +185,10 @@ class ZeroGen(_BaseClient):
         self.assets = Assets(self)
         self.folders = Folders(self)
         self.labels = Labels(self)
+        self.luts = Luts(self)
         self.naming_presets = NamingPresets(self)
         self.skills = Skills(self)
+        self.attachments = Attachments(self)
 
     def me(self, **options: Unpack[RequestOptions]) -> Me:
         """The API key, the organization it belongs to, and what it can do."""
@@ -277,6 +283,7 @@ class ZeroGen(_BaseClient):
                 timeout=timeout,
                 max_retries=max_retries,
                 stream=stream,
+                storage=True,
             )
         finally:
             _sending_to_storage.reset(token)
@@ -288,11 +295,13 @@ class ZeroGen(_BaseClient):
         timeout: float | None,
         max_retries: int,
         stream: bool = False,
+        storage: bool = False,
     ) -> httpx.Response:
         """Sends the request `build` makes for each attempt, retrying connection errors and
         retryable responses, and returns the first successful response. It never follows a
         redirect, which httpx would send with the `http_client`'s cookies. With `stream`, the
-        caller reads the response's body and closes it."""
+        caller reads the response's body and closes it. A `storage` request's errors never
+        quote its response, which can echo the signature."""
         attempt = 0
         while True:
             try:
@@ -309,7 +318,7 @@ class ZeroGen(_BaseClient):
             else:
                 if response.is_success:
                     return response
-                time.sleep(_error_retry_delay(response, attempt, max_retries))
+                time.sleep(_error_retry_delay(response, attempt, max_retries, storage))
             attempt += 1
 
 
@@ -323,8 +332,10 @@ class AsyncZeroGen(_BaseClient):
     assets: AsyncAssets
     folders: AsyncFolders
     labels: AsyncLabels
+    luts: AsyncLuts
     naming_presets: AsyncNamingPresets
     skills: AsyncSkills
+    attachments: AsyncAttachments
 
     def __init__(
         self,
@@ -369,8 +380,10 @@ class AsyncZeroGen(_BaseClient):
         self.assets = AsyncAssets(self)
         self.folders = AsyncFolders(self)
         self.labels = AsyncLabels(self)
+        self.luts = AsyncLuts(self)
         self.naming_presets = AsyncNamingPresets(self)
         self.skills = AsyncSkills(self)
+        self.attachments = AsyncAttachments(self)
 
     async def me(self, **options: Unpack[RequestOptions]) -> Me:
         """The API key, the organization it belongs to, and what it can do."""
@@ -465,6 +478,7 @@ class AsyncZeroGen(_BaseClient):
                 timeout=timeout,
                 max_retries=max_retries,
                 stream=stream,
+                storage=True,
             )
         finally:
             _sending_to_storage.reset(token)
@@ -476,11 +490,13 @@ class AsyncZeroGen(_BaseClient):
         timeout: float | None,
         max_retries: int,
         stream: bool = False,
+        storage: bool = False,
     ) -> httpx.Response:
         """Sends the request `build` makes for each attempt, retrying connection errors and
         retryable responses, and returns the first successful response. It never follows a
         redirect, which httpx would send with the `http_client`'s cookies. With `stream`, the
-        caller reads the response's body and closes it."""
+        caller reads the response's body and closes it. A `storage` request's errors never
+        quote its response, which can echo the signature."""
         attempt = 0
         while True:
             try:
@@ -497,7 +513,7 @@ class AsyncZeroGen(_BaseClient):
             else:
                 if response.is_success:
                     return response
-                await anyio.sleep(_error_retry_delay(response, attempt, max_retries))
+                await anyio.sleep(_error_retry_delay(response, attempt, max_retries, storage))
             attempt += 1
 
 
@@ -582,8 +598,10 @@ def _connection_retry_delay(
     return _backoff(attempt)
 
 
-def _error_retry_delay(response: httpx.Response, attempt: int, max_retries: int) -> float:
-    error = ZeroGenError.from_response(response)
+def _error_retry_delay(
+    response: httpx.Response, attempt: int, max_retries: int, storage: bool
+) -> float:
+    error = storage_error(response) if storage else ZeroGenError.from_response(response)
     delay = (
         _retry_delay(response.headers, attempt)
         if error.retryable and attempt < max_retries

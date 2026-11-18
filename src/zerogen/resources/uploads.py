@@ -158,9 +158,11 @@ def _create_body(
 def _refused(error: ZeroGenError) -> bool:
     """Whether the API refused a later declaration because the asset can't take one: it has a
     declaration or was made in ZeroGen, someone else uploaded it, or a declared source is the
-    asset or was made from it. The upload passed the scope checks, so `permission_denied`
-    means the uploader."""
-    return (error.status, error.code) in {(403, "permission_denied"), (409, "invalid_state")} or (
+    asset or was made from it. Any other `permission_denied`, such as a missing scope, is an
+    error."""
+    if error.code == "permission_denied":
+        return error.reason == "not_creator"
+    return error.code == "invalid_state" or (
         error.code == "validation_failed" and error.param == "sources"
     )
 

@@ -1,81 +1,75 @@
 from __future__ import annotations
 
-import contextlib
-import mimetypes
 import os
-import re
-from collections.abc import AsyncIterator, Iterator, Sequence
-from dataclasses import dataclass, field
-from typing import IO, TYPE_CHECKING, Literal, TypeAlias, TypeVar, Union, overload
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Literal, TypeAlias, TypeVar, overload
 from urllib.parse import quote
 
-import anyio
-import httpx
 from typing_extensions import Unpack
 
-from .._errors import ZeroGenConnectionError, ZeroGenError
-from .._options import PostRequestOptions, RequestOptions
+from .._options import PostRequestOptions, RequestOptions, without_idempotency_key
 from ..types import (
     Asset,
-    AssetChange,
     AssetDeclaration,
+    AssetDelete,
     AssetDetail,
     AssetDownload,
-    AssetFolders,
+    AssetFolder,
+    AssetFolderList,
     AssetList,
     DeclareUploadRequest,
-    Lineage,
+    LineageAsset,
+    LineageAssetList,
+    Run,
+    TransformAssetRequest,
+    TransformAssetRequestRecipe,
+    TransformAssetRequestRecipe1,
+    TransformAssetRequestRecipe2,
+    TransformAssetRequestRecipe3,
+    TransformRun,
     UpdateAssetRequest,
 )
+from . import _downloads
+from ._downloads import Download, DownloadDestination, DownloadInfo, SavedDownload
+from .runs import MAX_WAIT_SECONDS, has_ended
 
 if TYPE_CHECKING:
     from .._client import AsyncZeroGen, Query, ZeroGen
     from .._pagination import AsyncPaginator, Page
 
-DownloadDestination: TypeAlias = Union[str, "os.PathLike[str]", IO[bytes]]
-"""Where to write a download: a path, or a binary file object open for writing."""
+FrameRecipe: TypeAlias = TransformAssetRequestRecipe
+"""A transform recipe that takes a still from a video: `extractFrame`, then any of `rotate`,
+`flip`, `despill`, `lut` and `adjust`."""
+ImageRecipe: TypeAlias = TransformAssetRequestRecipe1
+"""A transform recipe for an image: any of `rotate`, `flip`, `crop`, `despill`, `lut`,
+`adjust`, `resize` and `convert`."""
+VideoRecipe: TypeAlias = TransformAssetRequestRecipe2
+"""A transform recipe that makes a video from a video: any of `trim`, `frameRate`,
+`removeAudio`, `reverse`, `speed`, `lengthen`, `rotate`, `flip`, `crop`, `despill`, `lut`,
+`adjust`, `resize` and `convert`."""
+AudioRecipe: TypeAlias = TransformAssetRequestRecipe3
+"""A transform recipe that makes audio from an audio asset or a video's sound: `trim`, and
+`convert` with an audio format."""
+TransformRecipe: TypeAlias = FrameRecipe | ImageRecipe | VideoRecipe | AudioRecipe
+"""What a transform makes: one form, chosen by the source asset, with steps that apply in a
+fixed order."""
 
 AssetType = Literal["image", "video", "audio", "model3d"]
 AssetOrigin = Literal["generated", "upload", "derived"]
 Resolution = Literal["4k", "1440p", "1080p", "720p", "sd", "2k", "1k", "0.5k"]
 Value = TypeVar("Value", bound=str)
 
-_UNSAFE_CHARACTERS = re.compile(r'[\x00-\x1f\x7f<>:"/\\|?*]')
-_DEVICE_NAME = re.compile(
-    r"(?i)(con|prn|aux|nul|conin\$|conout\$|com[0-9¹²³]|lpt[0-9¹²³]) *(\..*)?"
-)
-_MAX_NAME_BYTES = 240
-"""Under the 255 bytes most file systems allow, to leave room for a number."""
-_MAX_EXTENSION_BYTES = 16
-_MAX_NUMBER = 10_000
-
-
-@dataclass(frozen=True)
-class DownloadInfo:
-    """What a download read about the file it downloaded."""
-
-    asset_id: str
-    filename: str
-    """The name the file downloads under; untrusted content, so don't use it as a path as it
-    is. `download_to` makes a safe name from it."""
-    mime_type: str
-    size_bytes: int
-    """How many bytes the download received."""
-
-
-@dataclass(frozen=True)
-class Download(DownloadInfo):
-    """A downloaded file's bytes, with what the download read about it."""
-
-    content: bytes = field(repr=False)
-
-
-@dataclass(frozen=True)
-class SavedDownload(DownloadInfo):
-    """A file that `download_to` saved, with what the download read about it."""
-
-    path: str
-    """Where it saved the file."""
+__all__ = [
+    "AudioRecipe",
+    "Download",
+    "DownloadDestination",
+    "DownloadInfo",
+    "FrameRecipe",
+    "ImageRecipe",
+    "SavedDownload",
+    "TransformRecipe",
+    "VideoRecipe",
+]
 
 
 def _path(asset_id: str) -> str:
@@ -118,114 +112,10 @@ def _search_query(
     }
 
 
-def _safe_name(filename: str, asset_id: str, mime_type: str) -> str:
-    """A name to save a download under in a directory, made from the asset's filename, which
-    is untrusted: no path separators or characters Windows refuses, not hidden, not a Windows
-    device name, and short enough for any file system. Without one, the asset ID with the
-    media type's extension."""
-    extension = mimetypes.guess_extension(mime_type) or ""
-    name = _clean_name(filename) or _clean_name(asset_id + extension) or f"download{extension}"
-    return f"_{name}" if _DEVICE_NAME.fullmatch(name) else name
-
-
-def _clean_name(name: str) -> str:
-    stem, extension = _split_name(_UNSAFE_CHARACTERS.sub("_", name).strip(" ."))
-    room = _MAX_NAME_BYTES - len(extension.encode())
-    stem = stem.encode()[:room].decode(errors="ignore")
-    return (stem + extension).rstrip(" .")
-
-
-def _split_name(name: str) -> tuple[str, str]:
-    stem, extension = os.path.splitext(name)
-    if len(extension.encode()) > _MAX_EXTENSION_BYTES:
-        return name, ""
-    return stem, extension
-
-
-def _numbered_paths(directory: str | os.PathLike[str], name: str) -> Iterator[str]:
-    """`name` in `directory`, then the same with a number, as in `lighthouse (1).png`."""
-    stem, extension = _split_name(name)
-    yield os.path.join(directory, name)
-    for number in range(1, _MAX_NUMBER):
-        yield os.path.join(directory, f"{stem} ({number}){extension}")
-
-
-def _write(chunks: Iterator[bytes], destination: DownloadDestination) -> int:
-    """Writes a download into a path, which it removes again if the download stops, or into
-    a file object. Returns how many bytes it wrote."""
-    if isinstance(destination, (str, os.PathLike)):
-        path = os.fspath(destination)
-        with open(path, "wb") as file:
-            return _fill(file, path, chunks)
-    size = 0
-    for chunk in chunks:
-        destination.write(chunk)
-        size += len(chunk)
-    return size
-
-
-def _fill(file: IO[bytes], path: str, chunks: Iterator[bytes]) -> int:
-    """Writes a download into a file it opened at `path`, and removes the file again if the
-    download stops."""
-    size = 0
-    try:
-        for chunk in chunks:
-            file.write(chunk)
-            size += len(chunk)
-    except BaseException:
-        file.close()
-        with contextlib.suppress(OSError):
-            os.remove(path)
-        raise
-    return size
-
-
-def _create(directory: str | os.PathLike[str], name: str) -> tuple[str, IO[bytes]]:
-    """Creates a file named `name` in `directory`, or numbered when that name is taken."""
-    for path in _numbered_paths(directory, name):
-        with contextlib.suppress(FileExistsError):
-            return path, open(path, "xb")
-    raise FileExistsError(f"Every name for {name!r} in the directory is taken.")
-
-
-async def _async_write(chunks: AsyncIterator[bytes], destination: DownloadDestination) -> int:
-    if isinstance(destination, (str, os.PathLike)):
-        path = os.fspath(destination)
-        async with await anyio.open_file(path, "wb") as file:
-            return await _async_fill(file, path, chunks)
-    file = anyio.wrap_file(destination)
-    size = 0
-    async for chunk in chunks:
-        await file.write(chunk)
-        size += len(chunk)
-    return size
-
-
-async def _async_fill(file: anyio.AsyncFile[bytes], path: str, chunks: AsyncIterator[bytes]) -> int:
-    size = 0
-    try:
-        async for chunk in chunks:
-            await file.write(chunk)
-            size += len(chunk)
-    except BaseException:
-        file.wrapped.close()
-        with contextlib.suppress(OSError):
-            os.remove(path)
-        raise
-    return size
-
-
-async def _async_create(
-    directory: str | os.PathLike[str], name: str
-) -> tuple[str, anyio.AsyncFile[bytes]]:
-    for path in _numbered_paths(directory, name):
-        with contextlib.suppress(FileExistsError):
-            return path, await anyio.open_file(path, "xb")
-    raise FileExistsError(f"Every name for {name!r} in the directory is taken.")
-
-
-def _info(link: AssetDownload, size: int) -> DownloadInfo:
-    return DownloadInfo(link.asset_id, link.filename, link.mime_type, size)
+def _transformed(first: TransformRun, ended: Run) -> TransformRun:
+    """The run a wait ended with, as a transform's, keeping whether the transform reused
+    earlier work."""
+    return TransformRun.model_validate({**ended.model_dump(by_alias=True), "reused": first.reused})
 
 
 class Assets:
@@ -323,8 +213,9 @@ class Assets:
     ) -> AssetDeclaration:
         """Declares, once, what an upload that became ready without a declaration was made
         from and with: `tool` and any of `sources`, `prompt`, `workflow`, `externalRef` and
-        `occurredAt`. ZeroGen records the claim as a no-charge run without checking it. Only
-        the asset's uploader can declare it; needs `library:read` to declare `sources`."""
+        `occurredAt`. ZeroGen records the claim as a no-charge run without checking it. The
+        asset's uploader, or an owner or admin, can declare it; needs `library:read` to declare
+        `sources`."""
         return self._client._request(
             AssetDeclaration.model_validate,
             "POST",
@@ -333,37 +224,145 @@ class Assets:
             options=options,
         )
 
-    def lineage(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> Lineage:
-        """Reads what an asset was made from and what was made from it: up to 30 assets on each
-        side, nearest first."""
-        return self._client._request(
-            Lineage.model_validate, "GET", f"{_path(asset_id)}/lineage", options=options
+    def sources(
+        self,
+        asset_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> Page[LineageAsset]:
+        """Lists what an asset was made from, in any project, and what those were made from,
+        nearest first, up to 200 assets and 10 steps back. Each source's `edges` join it to the
+        asset or to sources listed before it, so you can rebuild the graph as you page.
+
+        Args:
+            limit: Sources per page, up to 100; default 30.
+            cursor: `next_cursor` from an earlier page.
+        """
+        return self._client._list(
+            LineageAssetList.model_validate,
+            f"{_path(asset_id)}/sources",
+            {"limit": limit, "cursor": cursor},
+            options,
         )
 
-    def folders(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> AssetFolders:
-        """Lists the folders an asset is in: up to 30, each with its path from the project
-        root. An empty list means the asset is Unfiled."""
-        return self._client._request(
-            AssetFolders.model_validate, "GET", f"{_path(asset_id)}/folders", options=options
+    def uses(
+        self,
+        asset_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> Page[LineageAsset]:
+        """Lists what was made from an asset, in its project, and what was made from those,
+        nearest first, up to 200 assets and 10 steps on. Each use's `edges` join it to the
+        asset or to uses listed before it.
+
+        Args:
+            limit: Uses per page, up to 100; default 30.
+            cursor: `next_cursor` from an earlier page.
+        """
+        return self._client._list(
+            LineageAssetList.model_validate,
+            f"{_path(asset_id)}/uses",
+            {"limit": limit, "cursor": cursor},
+            options,
+        )
+
+    def folders(
+        self,
+        asset_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> Page[AssetFolder]:
+        """Lists the folders an asset is in, each with its path from the project root, sorted
+        by path. An empty list means the asset is Unfiled. Folder names are untrusted content.
+
+        Args:
+            limit: Folders per page, up to 100; default 30.
+            cursor: `next_cursor` from an earlier page.
+        """
+        return self._client._list(
+            AssetFolderList.model_validate,
+            f"{_path(asset_id)}/folders",
+            {"limit": limit, "cursor": cursor},
+            options,
         )
 
     def update(
-        self,
-        project_id: str,
-        asset_id: str,
-        body: UpdateAssetRequest,
-        /,
-        **options: Unpack[RequestOptions],
-    ) -> AssetChange:
-        """Renames an asset, sets the organization's shared favorite, or both. The response
-        names what changed."""
+        self, asset_id: str, body: UpdateAssetRequest, /, **options: Unpack[PostRequestOptions]
+    ) -> AssetDetail:
+        """Renames an asset, sets the organization's shared favorite, or both, together: a
+        refused request changes neither. Returns the asset as `get` reads it. Needs
+        `library:organize` and `library:read`."""
         return self._client._request(
-            AssetChange.model_validate,
-            "PATCH",
-            f"/projects/{quote(project_id, safe='')}/assets/{quote(asset_id, safe='')}",
+            AssetDetail.model_validate, "PATCH", _path(asset_id), body=body, options=options
+        )
+
+    def delete(self, asset_id: str, /, **options: Unpack[PostRequestOptions]) -> AssetDelete:
+        """Moves an asset to Recently deleted, where it leaves search, its folders and run
+        inputs, and reads as `not_found`, until `restore` puts it back. Deleting it again
+        returns the same deletion. Needs the `library:delete` scope, which has to be granted
+        explicitly; test keys can't delete assets."""
+        return self._client._request(
+            AssetDelete.model_validate, "DELETE", _path(asset_id), options=options
+        )
+
+    def restore(self, asset_id: str, /, **options: Unpack[PostRequestOptions]) -> AssetDetail:
+        """Returns an asset from Recently deleted to its folders, and reads it as `get` does. An
+        active asset comes back unchanged. Needs `library:organize` and `library:read`; test
+        keys can't restore assets."""
+        return self._client._request(
+            AssetDetail.model_validate, "POST", f"{_path(asset_id)}/restore", options=options
+        )
+
+    def transform(
+        self,
+        asset_id: str,
+        body: TransformAssetRequest,
+        /,
+        *,
+        wait: int | None = None,
+        **options: Unpack[PostRequestOptions],
+    ) -> TransformRun:
+        """Makes a free Derived copy of an asset from a `recipe`, in a run whose output's asset
+        is the copy. Your earlier run of the same recipe on this asset, for the same
+        destination, returns with `reused` instead of running again, unless it failed. Needs
+        `runs:create` and `runs:read`; test keys can't transform assets.
+
+        Args:
+            wait: Seconds the API may hold the response until the run ends, up to 60.
+                Without it, the response returns at once.
+        """
+        return self._client._request(
+            TransformRun.model_validate,
+            "POST",
+            f"{_path(asset_id)}/transform",
             body=body,
+            wait=wait,
             options=options,
         )
+
+    def transform_and_wait(
+        self,
+        asset_id: str,
+        body: TransformAssetRequest,
+        /,
+        **options: Unpack[PostRequestOptions],
+    ) -> TransformRun:
+        """Transforms an asset and returns the run when it ends, with `reused` from the
+        transform. Check its `status`: a run that failed returns too."""
+        first = self.transform(asset_id, body, wait=MAX_WAIT_SECONDS, **options)
+        if has_ended(first):
+            return first
+        ended = self._client.runs.wait_for(first.id, **without_idempotency_key(options))
+        return _transformed(first, ended)
 
     def get_download(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> AssetDownload:
         """Reads a signed link to an asset's original file, valid for 5 minutes, with its
@@ -404,16 +403,9 @@ class Assets:
             destination: A path, which is removed again if the download fails partway, or a
                 binary file object open for writing.
         """
-        response, link = self._open(asset_id, options)
-        try:
-            if destination is None:
-                content = b"".join(response.iter_bytes())
-                return Download(link.asset_id, link.filename, link.mime_type, len(content), content)
-            return _info(link, _write(response.iter_bytes(), destination))
-        except httpx.TransportError as error:
-            raise ZeroGenConnectionError("The download stopped before it finished.") from error
-        finally:
-            response.close()
+        return _downloads.download(
+            self._client, lambda: self.get_download(asset_id, **options), destination, options
+        )
 
     def download_to(
         self,
@@ -430,38 +422,9 @@ class Assets:
         `lighthouse (1).png`, so it never overwrites a file. It removes the file again if the
         download fails partway. Otherwise it works as `download` does.
         """
-        response, link = self._open(asset_id, options)
-        try:
-            name = _safe_name(link.filename, link.asset_id, link.mime_type)
-            path, file = _create(directory, name)
-            with file:
-                size = _fill(file, path, response.iter_bytes())
-            return SavedDownload(link.asset_id, link.filename, link.mime_type, size, path)
-        except httpx.TransportError as error:
-            raise ZeroGenConnectionError("The download stopped before it finished.") from error
-        finally:
-            response.close()
-
-    def _open(self, asset_id: str, options: RequestOptions) -> tuple[httpx.Response, AssetDownload]:
-        refreshed = False
-        while True:
-            link = self.get_download(asset_id, **options)
-            try:
-                response = self._client._storage(
-                    "GET",
-                    link.url,
-                    headers={},
-                    content=lambda: None,
-                    timeout=options.get("timeout", self._client.timeout),
-                    max_retries=options.get("max_retries", self._client.max_retries),
-                    stream=True,
-                )
-            except ZeroGenError as error:
-                if error.status != 403 or refreshed:
-                    raise
-                refreshed = True
-            else:
-                return response, link
+        return _downloads.download_to(
+            self._client, lambda: self.get_download(asset_id, **options), directory, options
+        )
 
 
 class AsyncAssets:
@@ -559,8 +522,9 @@ class AsyncAssets:
     ) -> AssetDeclaration:
         """Declares, once, what an upload that became ready without a declaration was made
         from and with: `tool` and any of `sources`, `prompt`, `workflow`, `externalRef` and
-        `occurredAt`. ZeroGen records the claim as a no-charge run without checking it. Only
-        the asset's uploader can declare it; needs `library:read` to declare `sources`."""
+        `occurredAt`. ZeroGen records the claim as a no-charge run without checking it. The
+        asset's uploader, or an owner or admin, can declare it; needs `library:read` to declare
+        `sources`."""
         return await self._client._request(
             AssetDeclaration.model_validate,
             "POST",
@@ -569,37 +533,146 @@ class AsyncAssets:
             options=options,
         )
 
-    async def lineage(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> Lineage:
-        """Reads what an asset was made from and what was made from it: up to 30 assets on each
-        side, nearest first."""
-        return await self._client._request(
-            Lineage.model_validate, "GET", f"{_path(asset_id)}/lineage", options=options
+    def sources(
+        self,
+        asset_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> AsyncPaginator[LineageAsset]:
+        """Lists what an asset was made from, in any project, and what those were made from,
+        nearest first, up to 200 assets and 10 steps back. Each source's `edges` join it to the
+        asset or to sources listed before it, so you can rebuild the graph as you page.
+
+        Args:
+            limit: Sources per page, up to 100; default 30.
+            cursor: `next_cursor` from an earlier page.
+        """
+        return self._client._list(
+            LineageAssetList.model_validate,
+            f"{_path(asset_id)}/sources",
+            {"limit": limit, "cursor": cursor},
+            options,
         )
 
-    async def folders(self, asset_id: str, /, **options: Unpack[RequestOptions]) -> AssetFolders:
-        """Lists the folders an asset is in: up to 30, each with its path from the project
-        root. An empty list means the asset is Unfiled."""
-        return await self._client._request(
-            AssetFolders.model_validate, "GET", f"{_path(asset_id)}/folders", options=options
+    def uses(
+        self,
+        asset_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> AsyncPaginator[LineageAsset]:
+        """Lists what was made from an asset, in its project, and what was made from those,
+        nearest first, up to 200 assets and 10 steps on. Each use's `edges` join it to the
+        asset or to uses listed before it.
+
+        Args:
+            limit: Uses per page, up to 100; default 30.
+            cursor: `next_cursor` from an earlier page.
+        """
+        return self._client._list(
+            LineageAssetList.model_validate,
+            f"{_path(asset_id)}/uses",
+            {"limit": limit, "cursor": cursor},
+            options,
+        )
+
+    def folders(
+        self,
+        asset_id: str,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> AsyncPaginator[AssetFolder]:
+        """Lists the folders an asset is in, each with its path from the project root, sorted
+        by path. An empty list means the asset is Unfiled. Folder names are untrusted content.
+
+        Args:
+            limit: Folders per page, up to 100; default 30.
+            cursor: `next_cursor` from an earlier page.
+        """
+        return self._client._list(
+            AssetFolderList.model_validate,
+            f"{_path(asset_id)}/folders",
+            {"limit": limit, "cursor": cursor},
+            options,
         )
 
     async def update(
-        self,
-        project_id: str,
-        asset_id: str,
-        body: UpdateAssetRequest,
-        /,
-        **options: Unpack[RequestOptions],
-    ) -> AssetChange:
-        """Renames an asset, sets the organization's shared favorite, or both. The response
-        names what changed."""
+        self, asset_id: str, body: UpdateAssetRequest, /, **options: Unpack[PostRequestOptions]
+    ) -> AssetDetail:
+        """Renames an asset, sets the organization's shared favorite, or both, together: a
+        refused request changes neither. Returns the asset as `get` reads it. Needs
+        `library:organize` and `library:read`."""
         return await self._client._request(
-            AssetChange.model_validate,
-            "PATCH",
-            f"/projects/{quote(project_id, safe='')}/assets/{quote(asset_id, safe='')}",
+            AssetDetail.model_validate, "PATCH", _path(asset_id), body=body, options=options
+        )
+
+    async def delete(self, asset_id: str, /, **options: Unpack[PostRequestOptions]) -> AssetDelete:
+        """Moves an asset to Recently deleted, where it leaves search, its folders and run
+        inputs, and reads as `not_found`, until `restore` puts it back. Deleting it again
+        returns the same deletion. Needs the `library:delete` scope, which has to be granted
+        explicitly; test keys can't delete assets."""
+        return await self._client._request(
+            AssetDelete.model_validate, "DELETE", _path(asset_id), options=options
+        )
+
+    async def restore(self, asset_id: str, /, **options: Unpack[PostRequestOptions]) -> AssetDetail:
+        """Returns an asset from Recently deleted to its folders, and reads it as `get` does. An
+        active asset comes back unchanged. Needs `library:organize` and `library:read`; test
+        keys can't restore assets."""
+        return await self._client._request(
+            AssetDetail.model_validate, "POST", f"{_path(asset_id)}/restore", options=options
+        )
+
+    async def transform(
+        self,
+        asset_id: str,
+        body: TransformAssetRequest,
+        /,
+        *,
+        wait: int | None = None,
+        **options: Unpack[PostRequestOptions],
+    ) -> TransformRun:
+        """Makes a free Derived copy of an asset from a `recipe`, in a run whose output's asset
+        is the copy. Your earlier run of the same recipe on this asset, for the same
+        destination, returns with `reused` instead of running again, unless it failed. Needs
+        `runs:create` and `runs:read`; test keys can't transform assets.
+
+        Args:
+            wait: Seconds the API may hold the response until the run ends, up to 60.
+                Without it, the response returns at once.
+        """
+        return await self._client._request(
+            TransformRun.model_validate,
+            "POST",
+            f"{_path(asset_id)}/transform",
             body=body,
+            wait=wait,
             options=options,
         )
+
+    async def transform_and_wait(
+        self,
+        asset_id: str,
+        body: TransformAssetRequest,
+        /,
+        **options: Unpack[PostRequestOptions],
+    ) -> TransformRun:
+        """Transforms an asset and returns the run when it ends, with `reused` from the
+        transform. Check its `status`: a run that failed returns too. Cancel the task to stop
+        waiting; the run keeps running."""
+        first = await self.transform(asset_id, body, wait=MAX_WAIT_SECONDS, **options)
+        if has_ended(first):
+            return first
+        ended = await self._client.runs.wait_for(first.id, **without_idempotency_key(options))
+        return _transformed(first, ended)
 
     async def get_download(
         self, asset_id: str, /, **options: Unpack[RequestOptions]
@@ -642,16 +715,9 @@ class AsyncAssets:
             destination: A path, which is removed again if the download fails partway, or a
                 binary file object open for writing, written to in a worker thread.
         """
-        response, link = await self._open(asset_id, options)
-        try:
-            if destination is None:
-                content = b"".join([chunk async for chunk in response.aiter_bytes()])
-                return Download(link.asset_id, link.filename, link.mime_type, len(content), content)
-            return _info(link, await _async_write(response.aiter_bytes(), destination))
-        except httpx.TransportError as error:
-            raise ZeroGenConnectionError("The download stopped before it finished.") from error
-        finally:
-            await response.aclose()
+        return await _downloads.async_download(
+            self._client, lambda: self.get_download(asset_id, **options), destination, options
+        )
 
     async def download_to(
         self,
@@ -668,37 +734,6 @@ class AsyncAssets:
         `lighthouse (1).png`, so it never overwrites a file. It removes the file again if the
         download fails partway. Otherwise it works as `download` does.
         """
-        response, link = await self._open(asset_id, options)
-        try:
-            name = _safe_name(link.filename, link.asset_id, link.mime_type)
-            path, file = await _async_create(directory, name)
-            async with file:
-                size = await _async_fill(file, path, response.aiter_bytes())
-            return SavedDownload(link.asset_id, link.filename, link.mime_type, size, path)
-        except httpx.TransportError as error:
-            raise ZeroGenConnectionError("The download stopped before it finished.") from error
-        finally:
-            await response.aclose()
-
-    async def _open(
-        self, asset_id: str, options: RequestOptions
-    ) -> tuple[httpx.Response, AssetDownload]:
-        refreshed = False
-        while True:
-            link = await self.get_download(asset_id, **options)
-            try:
-                response = await self._client._storage(
-                    "GET",
-                    link.url,
-                    headers={},
-                    content=lambda: None,
-                    timeout=options.get("timeout", self._client.timeout),
-                    max_retries=options.get("max_retries", self._client.max_retries),
-                    stream=True,
-                )
-            except ZeroGenError as error:
-                if error.status != 403 or refreshed:
-                    raise
-                refreshed = True
-            else:
-                return response, link
+        return await _downloads.async_download_to(
+            self._client, lambda: self.get_download(asset_id, **options), directory, options
+        )

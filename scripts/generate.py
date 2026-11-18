@@ -132,11 +132,14 @@ def structural(schema: Any) -> Any:
 
 
 def loosen(schema: Any) -> Any:
-    """Drops a response schema's constraints, and lets each enum take any string too."""
+    """Drops a response schema's constraints, and lets each enum take any string too. An ID
+    with `format: uuid` stays a `str`, as every other ID is."""
     if not isinstance(schema, dict):
         return schema
     items = cast("dict[str, Any]", schema).items()
     out: dict[str, Any] = {key: value for key, value in items if key not in CONSTRAINTS}
+    if out.get("format") == "uuid":
+        del out["format"]
     if out.get("additionalProperties") is False:
         del out["additionalProperties"]
     if "properties" in out:

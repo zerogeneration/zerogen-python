@@ -1,5 +1,67 @@
 # Changelog
 
+## 0.4.0
+
+This release breaks compatibility with 0.3, for the API's reshaped Library and
+runs. Library writes take the resource's ID alone, every list pages, and lineage
+splits into sources and uses. [Migrating from 0.3](#migrating-from-03) lists
+each change and what replaces it. Its models need the fields the API added for
+this release, such as a run's `endedAt`, `kind` and `request`, so it can't read
+an older deployment of the API.
+
+- Waits end on the run's `ended_at`, which the API sets exactly when a run ends,
+  whatever its status, so a status added later can't keep `wait_for`,
+  `create_and_wait` or `transform_and_wait` waiting. `has_ended` checks
+  `ended_at` too.
+- Runs have `kind`, `ended_at` and `request`, what the run was asked to make in
+  the create request's shape. `runs.list` lists every member's runs and takes
+  `created_by`, `status`, `created_after` and `created_before`, up to 100 a page.
+- `runs.get_output_download`, `runs.download_output` and
+  `runs.download_output_to` download a run's output with only `runs:read`.
+- `runs.quote` returns `inputs`, the assets a create would use. A quote needs
+  `models:read`, not `runs:create`.
+- `ZeroGenError.reason` is a `rate_limited` or `permission_denied` error's
+  `details.reason`, typed as `ErrorReason`, the known reasons or any string.
+- Transforms: `assets.transform` and `assets.transform_and_wait` make a free
+  Derived copy of an asset from a recipe, typed as `TransformRecipe` and its
+  forms `FrameRecipe`, `ImageRecipe`, `VideoRecipe` and `AudioRecipe`.
+  `luts.list` lists the LUTs a recipe can name, each a `Lut`.
+- `assets.delete` and `assets.restore` move an asset to Recently deleted and
+  back.
+- `attachments`: `list`, `get`, `create`, `revise`, `delete`, `restore` and
+  `versions` for versioned text on projects, folders and Story clips.
+- `projects.get`, `folders.get` and `labels.get` read one by ID, and
+  `naming_presets.create` saves a preset.
+- `runs.create` takes `continuation` for Nano Banana edits.
+- Every `PATCH` sends an `Idempotency-Key`, as `POST` and `DELETE` do.
+- An error from storage quotes only the storage error's code and message, never
+  the rest of its body, which can echo the signed link.
+- `uploads.upload` raises a `permission_denied` from declaring an identical file
+  unless its `reason` is `not_creator`, such as a missing scope, instead of
+  reporting the declaration as not recorded.
+
+### Migrating from 0.3
+
+| 0.3 | 0.4 |
+| --- | --- |
+| `assets.lineage(asset_id)`, a `Lineage` | `assets.sources(asset_id)` and `assets.uses(asset_id)`, lists of `LineageAsset`. Each item's `edges` replace `Lineage.edges`, and `more_uses` and `truncated` are gone. |
+| `assets.folders(asset_id)`, an `AssetFolders` | A list of `AssetFolder`, each with `folder_id` and `path`. Iterate it, or read `.data` for one page. |
+| `assets.update(project_id, asset_id, body)`, an `AssetChange` | `assets.update(asset_id, body)`, the `AssetDetail` as `assets.get` reads it. |
+| `folders.create(project_id, body)` | `folders.create(body)`, with `projectId` in the body. |
+| `folders.update(project_id, folder_id, body)` | `folders.update(folder_id, body)`. |
+| `folders.delete(project_id, folder_id, assets=...)` | `folders.delete(folder_id, assets=...)`. |
+| `folders.restore(project_id, body)` | `folders.restore(body)`. |
+| `folders.add_assets`, `move_assets` and `remove_assets(project_id, folder_id, body)`, a `FolderAssetsChange` | `(folder_id, body)`, an `AssetBatchChange` with `updated_asset_ids` and `skipped_asset_ids`, and no `folder_id`. |
+| `labels.add_assets` and `remove_assets(project_id, label_id, body)`, a `LabelAssetsChange` | `(label_id, body)`, an `AssetBatchChange`, for up to 100 assets in any project. `asset_ids` and `assigned` are now `updated_asset_ids` and `skipped_asset_ids`. |
+| `labels.update` replaced the name, description and color, so it needed all three | It changes only the fields you send. |
+| `FolderAssetsRequest` and `LabelAssetsRequest` | `AssetBatchRequest`. |
+| `AssetChange`, `AssetFolders`, `AssetFoldersFolder`, `FolderAssetsChange`, `LabelAssetsChange`, `Lineage`, `LineageEdge` and `LineageTruncated` | Removed with the endpoints that returned them; see above. |
+| `runs.list` listed the API key owner's runs | It lists every member's. For your own, pass `created_by=zerogen.me().user.id`. |
+| `projects.list` returned every project in one page | It pages, 50 a page by default. Iterating it still reads every project; `.data` holds one page. |
+| `has_ended` and waits read a run's `status` | They read `ended_at`. |
+| A storage error's message quoted up to 200 characters of its body | It quotes only the storage error's code and message. |
+| `uploads.upload` reported any `permission_denied` from declaring an identical file as `declaration_recorded=False` | Only one whose `reason` is `not_creator`; any other raises. |
+
 ## 0.3.0
 
 This release breaks compatibility with 0.2: `assets.download` returns a
