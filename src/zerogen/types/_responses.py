@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any, Dict, Literal
 from datetime import datetime
-from pydantic import Field
+from pydantic import ConfigDict, Field
 from zerogen._models import BaseModel
 
 
@@ -105,6 +105,7 @@ class Model(BaseModel):
             "inpaint",
             "remix",
             "text-to-vector",
+            "image-to-matte",
             "text-to-video",
             "image-to-video",
             "first-last-frame-to-video",
@@ -112,7 +113,9 @@ class Model(BaseModel):
             "reference-to-video",
             "audio-to-video",
             "video-to-video",
+            "video-to-matte",
             "extend-video",
+            "upscale-video",
             "motion-control",
             "lip-sync",
             "clean-plate",
@@ -150,6 +153,7 @@ class ModelDetail(BaseModel):
             "inpaint",
             "remix",
             "text-to-vector",
+            "image-to-matte",
             "text-to-video",
             "image-to-video",
             "first-last-frame-to-video",
@@ -157,7 +161,9 @@ class ModelDetail(BaseModel):
             "reference-to-video",
             "audio-to-video",
             "video-to-video",
+            "video-to-matte",
             "extend-video",
+            "upscale-video",
             "motion-control",
             "lip-sync",
             "clean-plate",
@@ -180,6 +186,23 @@ class ModelDetail(BaseModel):
     """
 
 
+class QuoteInput(BaseModel):
+    role: (
+        Literal[
+            "source", "reference", "face-reference", "start-frame", "end-frame", "keyframe", "mask"
+        ]
+        | str
+    )
+    asset: str
+    """
+    Library asset ID
+    """
+    time_seconds: float | None = Field(None, alias="timeSeconds")
+    """
+    Keyframes only, and required for them: seconds from the start of the video, on one of the model's frames
+    """
+
+
 class QuoteBilling(BaseModel):
     mode: Literal["platform", "byok", "test"] | str
     quoted_micro_usd: int = Field(..., alias="quotedMicroUsd")
@@ -190,6 +213,10 @@ class QuoteBilling(BaseModel):
 
 class Quote(BaseModel):
     model: str
+    inputs: list[QuoteInput]
+    """
+    The request's inputs in order, each as the Library asset create would use: a url input's asset is the one ZeroGen imported for this quote. Send these as the create's inputs so it doesn't import the URLs again. Empty when the request has none
+    """
     billing: QuoteBilling
 
 
@@ -253,6 +280,71 @@ class RunBilling(BaseModel):
     charged_micro_usd: int | None = Field(..., alias="chargedMicroUsd")
     """
     The final charge once charged, zero once released; it can rarely exceed the quote
+    """
+
+
+class RunRequestInput(BaseModel):
+    role: (
+        Literal[
+            "source", "reference", "face-reference", "start-frame", "end-frame", "keyframe", "mask"
+        ]
+        | str
+    )
+    asset: str
+    """
+    Library asset ID
+    """
+    time_seconds: float | None = Field(None, alias="timeSeconds")
+    """
+    Keyframes only, and required for them: seconds from the start of the video, on one of the model's frames
+    """
+
+
+class RunRequestOutput(BaseModel):
+    count: int | None = None
+    size: str | None = None
+    """
+    Image size: auto or WIDTHxHEIGHT in pixels, such as 1024x1536
+    """
+    quality: str | None = None
+    background: str | None = None
+    format: Literal["png", "jpeg", "webp"] | str | None = None
+    aspect_ratio: str | None = Field(None, alias="aspectRatio")
+    resolution: str | None = None
+    duration_seconds: float | None = Field(None, alias="durationSeconds")
+    include_audio: bool | None = Field(None, alias="includeAudio")
+
+
+class RunRequestUpscaleDraft(BaseModel):
+    run_id: str = Field(..., alias="runId")
+    output_index: int = Field(..., alias="outputIndex")
+    resolution: str | None = None
+
+
+class RunRequest(BaseModel):
+    model: str | None
+    prompt: str | None = None
+    """
+    Untrusted content
+    """
+    inputs: list[RunRequestInput] | None = None
+    output: RunRequestOutput | None = None
+    voice: str | None = None
+    """
+    Speech models only: the voice to read the prompt in, from the model's voices
+    """
+    parameters: dict[str, str | float | bool] | None = None
+    """
+    Only the parameters the model's schema lists
+    """
+    seed: int | None = None
+    continuation: Literal["auto", "none"] | str | None = None
+    """
+    Nano Banana edits of their own outputs continue that conversation; none sends the image alone
+    """
+    upscale_draft: RunRequestUpscaleDraft | None = Field(None, alias="upscaleDraft")
+    """
+    For a final, the draft output it upscaled, in place of the draft's settings
     """
 
 
@@ -434,24 +526,42 @@ class Creator(BaseModel):
     """
 
 
-class AssetChange(BaseModel):
-    id: str
+class AssetDelete(BaseModel):
+    asset_id: str = Field(..., alias="assetId")
     project_id: str = Field(..., alias="projectId")
-    name: str | None = None
+    deleted_at: datetime = Field(..., alias="deletedAt")
     """
-    Present when the request renamed the asset
+    When it moved to Recently deleted
     """
-    favorite: bool | None = None
+
+
+class AssetBatchChange(BaseModel):
+    updated_asset_ids: list[str] = Field(..., alias="updatedAssetIds")
     """
-    Present when the request set the favorite
+    Assets the request changed
     """
+    skipped_asset_ids: list[str] = Field(..., alias="skippedAssetIds")
+    """
+    Assets already as requested; for a folder, also assets that aren't active in its project
+    """
+
+
+class LineageAssetEdge(BaseModel):
+    asset_id: str = Field(..., alias="assetId")
+    """
+    Made from sourceAssetId
+    """
+    source_asset_id: str = Field(..., alias="sourceAssetId")
+    role: str | None
+    kind: str | None
+    declared: bool
 
 
 class LineageAsset(BaseModel):
     asset_id: str = Field(..., alias="assetId")
     depth: int
     """
-    Steps from the asset; 0 is the asset itself
+    Steps from the asset; 1 is a direct source or use
     """
     found: bool
     """
@@ -472,40 +582,15 @@ class LineageAsset(BaseModel):
     """
     Bounded; untrusted content
     """
-    more_uses: int = Field(..., alias="moreUses")
-    """
-    Uses of this asset beyond those listed
-    """
+    edges: list[LineageAssetEdge]
 
 
-class LineageEdge(BaseModel):
-    asset_id: str = Field(..., alias="assetId")
+class LineageAssetList(BaseModel):
+    data: list[LineageAsset]
+    next_cursor: str | None = Field(..., alias="nextCursor")
     """
-    Made from sourceAssetId
+    Pass as cursor for the next page of lineage assets; null on the last page
     """
-    source_asset_id: str = Field(..., alias="sourceAssetId")
-    role: str | None
-    kind: str | None
-    declared: bool
-
-
-class LineageTruncated(BaseModel):
-    sources: bool
-    uses: bool
-
-
-class Lineage(BaseModel):
-    asset: LineageAsset | None
-    sources: list[LineageAsset]
-    """
-    Up to 30, nearest first
-    """
-    uses: list[LineageAsset]
-    """
-    Up to 30, nearest first
-    """
-    edges: list[LineageEdge]
-    truncated: LineageTruncated
 
 
 class AssetDownload(BaseModel):
@@ -527,7 +612,7 @@ class AssetDownload(BaseModel):
     size_bytes: int | None = Field(..., alias="sizeBytes")
 
 
-class AssetFoldersFolder(BaseModel):
+class AssetFolder(BaseModel):
     folder_id: str = Field(..., alias="folderId")
     path: str
     """
@@ -535,16 +620,11 @@ class AssetFoldersFolder(BaseModel):
     """
 
 
-class AssetFolders(BaseModel):
-    asset_id: str = Field(..., alias="assetId")
-    project_id: str = Field(..., alias="projectId")
-    folders: list[AssetFoldersFolder]
+class AssetFolderList(BaseModel):
+    data: list[AssetFolder]
+    next_cursor: str | None = Field(..., alias="nextCursor")
     """
-    Up to 30, sorted by path; empty when the asset is Unfiled
-    """
-    truncated: bool
-    """
-    True when the asset is in more folders than listed
+    Pass as cursor for the next page of the asset's folders; null on the last page
     """
 
 
@@ -584,18 +664,6 @@ class FolderList(BaseModel):
     """
 
 
-class FolderAssetsChange(BaseModel):
-    folder_id: str = Field(..., alias="folderId")
-    updated_asset_ids: list[str] = Field(..., alias="updatedAssetIds")
-    """
-    Assets the request changed
-    """
-    skipped_asset_ids: list[str] = Field(..., alias="skippedAssetIds")
-    """
-    Assets already as requested, or not active in this project
-    """
-
-
 class NamingPreset(BaseModel):
     id: str
     project_id: str = Field(..., alias="projectId")
@@ -614,6 +682,187 @@ class NamingPresetList(BaseModel):
     """
 
 
+class TransformRunOutputAsset(BaseModel):
+    id: str
+    mime_type: str = Field(..., alias="mimeType")
+    width: int | None
+    height: int | None
+    duration_ms: int | None = Field(..., alias="durationMs")
+    resource_uri: str | None = Field(None, alias="resourceUri")
+    """
+    Where this transport's client reads the asset, such as an MCP resource
+    """
+    preview: AssetPreview | None
+    """
+    The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio
+    """
+
+
+class TransformRunOutputWarning(BaseModel):
+    code: str
+    message: str
+
+
+class TransformRunOutputDraft(BaseModel):
+    expires_at: datetime = Field(..., alias="expiresAt")
+    """
+    When upscaling this output closes
+    """
+    upscalable: bool
+    """
+    A final can be requested now: unexpired, with no final in progress
+    """
+    upscale: Literal["upscaling", "upscaled"] | str | None
+    """
+    The newest final's state, or null when none was requested
+    """
+    final_resolution: str | None = Field(None, alias="finalResolution")
+    """
+    That final's resolution, one the model's draft control lists
+    """
+    final_asset_id: str | None = Field(None, alias="finalAssetId")
+    """
+    The newest finished final's asset
+    """
+
+
+class TransformRunBillingHold(BaseModel):
+    state: Literal["running", "ended", "needs_attention"] | str
+    """
+    running: the run has not ended; ended: it ended and the hold is still pending; needs_attention: it has stayed pending 30 minutes after ending, or 24 hours after admission with no end recorded (endedAt then stays null), so ZeroGen is looking into it
+    """
+    ended_at: datetime | None = Field(..., alias="endedAt")
+    """
+    When the run ended; null while it runs or when no end was recorded
+    """
+
+
+class TransformRunBilling(BaseModel):
+    mode: Literal["platform", "byok", "test"] | str
+    state: Literal["held", "charged", "released"] | str | None
+    """
+    held: an amount is reserved and nothing is charged yet; charged: chargedMicroUsd is the final charge; released: the hold ended with no charge; null: billing never admitted the run, so nothing was held or charged
+    """
+    hold: TransformRunBillingHold | None = None
+    """
+    While held, where the run stands. It reports facts, not what settlement will do
+    """
+    quoted_micro_usd: int | None = Field(..., alias="quotedMicroUsd")
+    """
+    Reserved maximum expected charge
+    """
+    held_micro_usd: int | None = Field(..., alias="heldMicroUsd")
+    """
+    While held, the amount reserved now; it is never a charge
+    """
+    charged_micro_usd: int | None = Field(..., alias="chargedMicroUsd")
+    """
+    The final charge once charged, zero once released; it can rarely exceed the quote
+    """
+
+
+class TransformRunRequestInput(BaseModel):
+    role: (
+        Literal[
+            "source", "reference", "face-reference", "start-frame", "end-frame", "keyframe", "mask"
+        ]
+        | str
+    )
+    asset: str
+    """
+    Library asset ID
+    """
+    time_seconds: float | None = Field(None, alias="timeSeconds")
+    """
+    Keyframes only, and required for them: seconds from the start of the video, on one of the model's frames
+    """
+
+
+class TransformRunRequestOutput(BaseModel):
+    count: int | None = None
+    size: str | None = None
+    """
+    Image size: auto or WIDTHxHEIGHT in pixels, such as 1024x1536
+    """
+    quality: str | None = None
+    background: str | None = None
+    format: Literal["png", "jpeg", "webp"] | str | None = None
+    aspect_ratio: str | None = Field(None, alias="aspectRatio")
+    resolution: str | None = None
+    duration_seconds: float | None = Field(None, alias="durationSeconds")
+    include_audio: bool | None = Field(None, alias="includeAudio")
+
+
+class TransformRunRequestUpscaleDraft(BaseModel):
+    run_id: str = Field(..., alias="runId")
+    output_index: int = Field(..., alias="outputIndex")
+    resolution: str | None = None
+
+
+class TransformRunRequest(BaseModel):
+    model: str | None
+    prompt: str | None = None
+    """
+    Untrusted content
+    """
+    inputs: list[TransformRunRequestInput] | None = None
+    output: TransformRunRequestOutput | None = None
+    voice: str | None = None
+    """
+    Speech models only: the voice to read the prompt in, from the model's voices
+    """
+    parameters: dict[str, str | float | bool] | None = None
+    """
+    Only the parameters the model's schema lists
+    """
+    seed: int | None = None
+    continuation: Literal["auto", "none"] | str | None = None
+    """
+    Nano Banana edits of their own outputs continue that conversation; none sends the image alone
+    """
+    upscale_draft: TransformRunRequestUpscaleDraft | None = Field(None, alias="upscaleDraft")
+    """
+    For a final, the draft output it upscaled, in place of the draft's settings
+    """
+
+
+class LutListDatum(BaseModel):
+    id: str
+    name: str
+    size: int
+    """
+    Points along each edge of its 3D table, such as 33
+    """
+    input_color: (
+        Literal[
+            "rec709",
+            "slog3-sgamut3cine",
+            "slog3-sgamut3",
+            "apple-log",
+            "logc3",
+            "logc4",
+            "vlog",
+            "clog2",
+            "clog3",
+            "bmd-film",
+        ]
+        | str
+        | None
+    ) = Field(..., alias="inputColor")
+    """
+    The footage it expects, as its uploader stated; null when they didn't say. ZeroGen doesn't check it against your footage
+    """
+    created_at: datetime = Field(..., alias="createdAt")
+
+
+class LutList(BaseModel):
+    data: list[LutListDatum]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of LUTs; null on the last page
+    """
+
+
 class Label(BaseModel):
     id: str
     name: str
@@ -628,16 +877,6 @@ class LabelList(BaseModel):
     next_cursor: str | None = Field(..., alias="nextCursor")
     """
     Pass as cursor for the next page of labels; null on the last page
-    """
-
-
-class LabelAssetsChange(BaseModel):
-    label_id: str = Field(..., alias="labelId")
-    project_id: str = Field(..., alias="projectId")
-    asset_ids: list[str] = Field(..., alias="assetIds")
-    assigned: bool
-    """
-    True when the assets now have the label, false when it was removed
     """
 
 
@@ -679,12 +918,105 @@ class SkillDetail(BaseModel):
     """
 
 
+class AttachmentParent(BaseModel):
+    kind: Literal["project", "folder", "clip"] | str
+    id: str
+    name: str
+
+
+class Attachment(BaseModel):
+    attachment_id: str = Field(..., alias="attachmentId")
+    title: str
+    parent: AttachmentParent
+    version: int
+    characters: int
+    updated_at: datetime = Field(..., alias="updatedAt")
+    updated_by: str = Field(..., alias="updatedBy")
+
+
+class AttachmentList(BaseModel):
+    data: list[Attachment]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of attachments; null on the last page
+    """
+
+
+class AttachmentDetail(BaseModel):
+    title: str
+    body: str
+    parent: AttachmentParent
+    version: int
+    latest_version: int = Field(..., alias="latestVersion")
+    saved_at: datetime = Field(..., alias="savedAt")
+    saved_by: str = Field(..., alias="savedBy")
+
+
+class AttachmentVersion(BaseModel):
+    version: int
+    operation: Literal["created", "revised", "deleted", "restored"] | str
+    restored_from: int | None = Field(..., alias="restoredFrom")
+    characters: int
+    saved_at: datetime = Field(..., alias="savedAt")
+    saved_by: str = Field(..., alias="savedBy")
+
+
+class AttachmentVersions(BaseModel):
+    data: list[AttachmentVersion]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of attachment versions; null on the last page
+    """
+
+
+class AttachmentCreate(BaseModel):
+    project_id: str = Field(..., alias="projectId")
+    version: int
+    attachment_id: str = Field(..., alias="attachmentId")
+    outcome: Literal["created", "unchanged"] | str
+
+
+class AttachmentRevise(BaseModel):
+    project_id: str = Field(..., alias="projectId")
+    version: int
+    outcome: Literal["revised", "unchanged"] | str
+
+
+class AttachmentDelete(BaseModel):
+    project_id: str = Field(..., alias="projectId")
+    version: int
+    outcome: Literal["deleted", "unchanged"] | str
+
+
+class AttachmentRestore(BaseModel):
+    project_id: str = Field(..., alias="projectId")
+    version: int
+    restored_from: int = Field(..., alias="restoredFrom")
+    outcome: Literal["restored", "unchanged"] | str
+
+
+class ErrorDetails(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+    )
+    __annotations__ = {
+        "__pydantic_extra__": Dict[str, Any],
+    }
+    reason: str | None = None
+    """
+    The cause. Stable for rate_limited (request_limit, running_cap, platform_capacity, url_import_limit) and permission_denied (scope_required, role_required, not_creator, feature_not_enabled, early_access, test_key_sandbox, browser_request); for a run or output error, for diagnosis only
+    """
+
+
 class Error(BaseModel):
     code: str
     message: str
     param: str | None = None
     retryable: bool
-    details: dict[str, Any] | None = None
+    details: ErrorDetails | None = None
+    """
+    More facts about the error; each code says which it carries
+    """
 
 
 class ErrorResponse(BaseModel):
@@ -728,9 +1060,13 @@ class Run(BaseModel):
     """
     The project that holds the outputs
     """
+    kind: Literal["generation", "transform", "upload"] | str
     model: str | None
     model_version: str | None = Field(..., alias="modelVersion")
     status: Literal["queued", "running", "succeeded", "partial", "failed", "cancelled"] | str
+    """
+    queued and running mean the run hasn't ended. On every other status, check each output: a cancelled or failed run can still hold succeeded outputs, which are kept and charged
+    """
     outputs: list[RunOutput]
     error: Error | None
     billing: RunBilling
@@ -745,6 +1081,14 @@ class Run(BaseModel):
     created_at: datetime = Field(..., alias="createdAt")
     started_at: datetime | None = Field(..., alias="startedAt")
     finished_at: datetime | None = Field(..., alias="finishedAt")
+    """
+    When ZeroGen recorded the run's end; prefer endedAt to tell whether it has ended
+    """
+    ended_at: datetime | None = Field(..., alias="endedAt")
+    """
+    When the run ended: set exactly when it has, whatever its status, and null while it runs. Stop waiting once it's set
+    """
+    request: RunRequest | None
     web_url: str | None = Field(..., alias="webUrl")
     """
     Opens Generate's review of the run's first ready output in ZeroGen, on your organization's host, after sign-in. null until an output is ready, and for test keys. It can change until the run ends
@@ -925,4 +1269,64 @@ class AssetDetail(BaseModel):
     preview: AssetPreview | None
     """
     The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio
+    """
+
+
+class TransformRunOutput(BaseModel):
+    index: int
+    status: Literal["queued", "running", "succeeded", "failed", "cancelled"] | str
+    asset: TransformRunOutputAsset | None
+    error: Error | None
+    warnings: list[TransformRunOutputWarning] | None = None
+    """
+    What the provider ignored, such as an unused reference
+    """
+    draft: TransformRunOutputDraft | None = None
+    """
+    A 480p Draft output; upscaling it makes a final with the same seed, at a resolution the model's draft control lists
+    """
+
+
+class TransformRun(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    """
+    The project that holds the outputs
+    """
+    kind: Literal["generation", "transform", "upload"] | str
+    model: str | None
+    model_version: str | None = Field(..., alias="modelVersion")
+    status: Literal["queued", "running", "succeeded", "partial", "failed", "cancelled"] | str
+    """
+    queued and running mean the run hasn't ended. On every other status, check each output: a cancelled or failed run can still hold succeeded outputs, which are kept and charged
+    """
+    outputs: list[TransformRunOutput]
+    error: Error | None
+    billing: TransformRunBilling
+    created_by: Creator | None = Field(..., alias="createdBy")
+    """
+    Who made it; null when ZeroGen recorded no one
+    """
+    created_via: Literal["web", "agent", "mcp", "api"] | str | None = Field(..., alias="createdVia")
+    """
+    Where it was made: web (the ZeroGen app), agent (ZeroGen's Agent), mcp (an MCP client) or api (an API key); null with createdBy
+    """
+    created_at: datetime = Field(..., alias="createdAt")
+    started_at: datetime | None = Field(..., alias="startedAt")
+    finished_at: datetime | None = Field(..., alias="finishedAt")
+    """
+    When ZeroGen recorded the run's end; prefer endedAt to tell whether it has ended
+    """
+    ended_at: datetime | None = Field(..., alias="endedAt")
+    """
+    When the run ended: set exactly when it has, whatever its status, and null while it runs. Stop waiting once it's set
+    """
+    request: TransformRunRequest | None
+    web_url: str | None = Field(..., alias="webUrl")
+    """
+    Opens Generate's review of the run's first ready output in ZeroGen, on your organization's host, after sign-in. null until an output is ready, and for test keys. It can change until the run ends
+    """
+    reused: bool
+    """
+    True when this is your earlier run of the same recipe on this asset for the same destination, finished or in progress, so no new work started
     """

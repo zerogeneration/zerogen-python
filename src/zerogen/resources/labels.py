@@ -7,10 +7,10 @@ from typing_extensions import Unpack
 
 from .._options import PostRequestOptions, RequestOptions
 from ..types import (
+    AssetBatchChange,
+    AssetBatchRequest,
     CreateLabelRequest,
     Label,
-    LabelAssetsChange,
-    LabelAssetsRequest,
     LabelList,
     UpdateLabelRequest,
 )
@@ -24,8 +24,8 @@ def _path(label_id: str) -> str:
     return f"/labels/{quote(label_id, safe='')}"
 
 
-def _assets_path(project_id: str, label_id: str) -> str:
-    return f"/projects/{quote(project_id, safe='')}/labels/{quote(label_id, safe='')}/assets"
+def _assets_path(label_id: str) -> str:
+    return f"{_path(label_id)}/assets"
 
 
 class Labels:
@@ -61,13 +61,18 @@ class Labels:
             Label.model_validate, "POST", "/labels", body=body, options=options
         )
 
+    def get(self, label_id: str, /, **options: Unpack[RequestOptions]) -> Label:
+        """Reads an organization label. An archived label reads only for owners and
+        admins."""
+        return self._client._request(Label.model_validate, "GET", _path(label_id), options=options)
+
     def update(
-        self, label_id: str, body: UpdateLabelRequest, /, **options: Unpack[RequestOptions]
+        self, label_id: str, body: UpdateLabelRequest, /, **options: Unpack[PostRequestOptions]
     ) -> Label:
-        """Replaces a label's name, description and color, so send all three; owners and admins
-        only."""
+        """Changes a label's name, description or color, keeping the fields you leave out;
+        owners and admins only."""
         return self._client._request(
-            Label.model_validate, "PUT", _path(label_id), body=body, options=options
+            Label.model_validate, "PATCH", _path(label_id), body=body, options=options
         )
 
     def archive(self, label_id: str, /, **options: Unpack[PostRequestOptions]) -> Label:
@@ -85,35 +90,35 @@ class Labels:
 
     def add_assets(
         self,
-        project_id: str,
         label_id: str,
-        body: LabelAssetsRequest,
+        body: AssetBatchRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> LabelAssetsChange:
-        """Adds a label to up to 50 assets in a project, all or none."""
+    ) -> AssetBatchChange:
+        """Adds a label to up to 100 assets, in any of the organization's projects, all or
+        none. Returns the assets it changed and those that already had it."""
         return self._client._request(
-            LabelAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            _assets_path(project_id, label_id),
+            _assets_path(label_id),
             body=body,
             options=options,
         )
 
     def remove_assets(
         self,
-        project_id: str,
         label_id: str,
-        body: LabelAssetsRequest,
+        body: AssetBatchRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> LabelAssetsChange:
-        """Removes a label from up to 50 assets in a project, all or none. The label itself
-        stays."""
+    ) -> AssetBatchChange:
+        """Removes a label from up to 100 assets, in any of the organization's projects, all
+        or none. The label itself stays. Returns the assets it changed and those that didn't
+        have it."""
         return self._client._request(
-            LabelAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            f"{_assets_path(project_id, label_id)}/remove",
+            f"{_assets_path(label_id)}/remove",
             body=body,
             options=options,
         )
@@ -154,13 +159,20 @@ class AsyncLabels:
             Label.model_validate, "POST", "/labels", body=body, options=options
         )
 
-    async def update(
-        self, label_id: str, body: UpdateLabelRequest, /, **options: Unpack[RequestOptions]
-    ) -> Label:
-        """Replaces a label's name, description and color, so send all three; owners and admins
-        only."""
+    async def get(self, label_id: str, /, **options: Unpack[RequestOptions]) -> Label:
+        """Reads an organization label. An archived label reads only for owners and
+        admins."""
         return await self._client._request(
-            Label.model_validate, "PUT", _path(label_id), body=body, options=options
+            Label.model_validate, "GET", _path(label_id), options=options
+        )
+
+    async def update(
+        self, label_id: str, body: UpdateLabelRequest, /, **options: Unpack[PostRequestOptions]
+    ) -> Label:
+        """Changes a label's name, description or color, keeping the fields you leave out;
+        owners and admins only."""
+        return await self._client._request(
+            Label.model_validate, "PATCH", _path(label_id), body=body, options=options
         )
 
     async def archive(self, label_id: str, /, **options: Unpack[PostRequestOptions]) -> Label:
@@ -178,35 +190,35 @@ class AsyncLabels:
 
     async def add_assets(
         self,
-        project_id: str,
         label_id: str,
-        body: LabelAssetsRequest,
+        body: AssetBatchRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> LabelAssetsChange:
-        """Adds a label to up to 50 assets in a project, all or none."""
+    ) -> AssetBatchChange:
+        """Adds a label to up to 100 assets, in any of the organization's projects, all or
+        none. Returns the assets it changed and those that already had it."""
         return await self._client._request(
-            LabelAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            _assets_path(project_id, label_id),
+            _assets_path(label_id),
             body=body,
             options=options,
         )
 
     async def remove_assets(
         self,
-        project_id: str,
         label_id: str,
-        body: LabelAssetsRequest,
+        body: AssetBatchRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> LabelAssetsChange:
-        """Removes a label from up to 50 assets in a project, all or none. The label itself
-        stays."""
+    ) -> AssetBatchChange:
+        """Removes a label from up to 100 assets, in any of the organization's projects, all
+        or none. The label itself stays. Returns the assets it changed and those that didn't
+        have it."""
         return await self._client._request(
-            LabelAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            f"{_assets_path(project_id, label_id)}/remove",
+            f"{_assets_path(label_id)}/remove",
             body=body,
             options=options,
         )

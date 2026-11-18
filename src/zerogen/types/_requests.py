@@ -114,6 +114,10 @@ class CreateRunRequest(TypedDict, closed=True):
     """
     Only for models whose schema lists seed: the same seed with the same request reproduces a result as closely as the model allows. The model picks one when omitted
     """
+    continuation: NotRequired[Literal["auto", "none"]]
+    """
+    Nano Banana edits of their own outputs continue that conversation; none sends the image alone
+    """
     maxCostMicroUsd: NotRequired[int]
     """
     Refuse to start when the quote exceeds this amount
@@ -327,15 +331,29 @@ class UpdateAssetRequest(TypedDict, closed=True):
     """
 
 
+AssetBatchRequestAssetId: TypeAlias = str
+
+
+class AssetBatchRequest(TypedDict, closed=True):
+    assetIds: list[AssetBatchRequestAssetId]
+    """
+    Up to 100 assets
+    """
+
+
 class RestoreFolderRequest(TypedDict, closed=True):
     eventId: str
 
 
 class CreateFolderRequest(TypedDict, closed=True):
+    projectId: str
+    """
+    The project to make the folder in
+    """
     name: str
     parentId: NotRequired[str | None]
     """
-    The parent folder; omit or null for the project root
+    The parent folder, in the same project; omit or null for the project root
     """
     reuseExisting: NotRequired[bool]
     """
@@ -347,17 +365,7 @@ class UpdateFolderRequest(TypedDict, closed=True):
     name: NotRequired[str]
     parentId: NotRequired[str | None]
     """
-    The new parent folder, or null to move it to the project root
-    """
-
-
-FolderAssetsRequestAssetId: TypeAlias = str
-
-
-class FolderAssetsRequest(TypedDict, closed=True):
-    assetIds: list[FolderAssetsRequestAssetId]
-    """
-    Up to 100 assets
+    The new parent folder, in the same project, or null for the project root
     """
 
 
@@ -372,6 +380,471 @@ class MoveAssetsRequest(TypedDict, closed=True):
     fromFolderId: str
     """
     The folder to take the assets out of; their other folders keep them
+    """
+
+
+class CreateNamingPresetRequestDefinitionField(TypedDict, closed=True):
+    id: str
+    kind: Literal["shot", "take", "artist", "date", "version", "text", "folder"]
+    label: str
+    prefix: str
+    padding: int
+    step: int
+    sequence: Literal["number", "letters"]
+    artistFormat: Literal["initials", "compact", "hyphen", "underscore", "custom"]
+    artistNameStyle: NotRequired[Literal["full", "initials"]]
+    artistCase: NotRequired[Literal["preserve", "lower", "upper", "title"]]
+    artistSeparator: NotRequired[str]
+    dateFormat: str
+    defaultValue: str
+    folderRemoveSpaces: NotRequired[bool]
+
+
+class CreateNamingPresetRequestDefinition(TypedDict, closed=True):
+    delimiter: str
+    fields: list[CreateNamingPresetRequestDefinitionField]
+
+
+class CreateNamingPresetRequest(TypedDict, closed=True):
+    projectId: str
+    name: str
+    definition: CreateNamingPresetRequestDefinition
+
+
+class TransformAssetRequestRecipeExtractFrame(TypedDict, closed=True):
+    timeSeconds: float
+    """
+    Where to take the frame, in seconds from the start of the video
+    """
+
+
+class TransformAssetRequestRecipeDespill(TypedDict, closed=True):
+    screen: Literal["green", "blue"]
+    """
+    The screen color to remove from the subject
+    """
+
+
+class TransformAssetRequestRecipeLut(TypedDict, closed=True):
+    lutId: str
+    """
+    A LUT from this organization
+    """
+    strength: NotRequired[int]
+    """
+    How much of the LUT to apply, as a percent; default 100
+    """
+
+
+class TransformAssetRequestRecipeAdjust(TypedDict, closed=True):
+    exposure: NotRequired[int]
+    """
+    -100 is two stops darker, 100 two stops brighter; highlights can clip
+    """
+    brightness: NotRequired[int]
+    """
+    Moves the midtones; black and white stay where they are
+    """
+    contrast: NotRequired[int]
+    """
+    -100 halves the contrast around mid gray, 100 doubles it
+    """
+    saturation: NotRequired[int]
+    """
+    -100 is black and white, 100 doubles the saturation
+    """
+    temperature: NotRequired[int]
+    """
+    Below 0 is cooler, above 0 warmer
+    """
+    tint: NotRequired[int]
+    """
+    Below 0 is greener, above 0 more magenta
+    """
+
+
+class TransformAssetRequestRecipe(TypedDict, closed=True):
+    extractFrame: TransformAssetRequestRecipeExtractFrame
+    rotate: NotRequired[Literal[90, 180, 270]]
+    """
+    Turn the picture clockwise by this many degrees
+    """
+    flip: NotRequired[Literal["horizontal", "vertical"]]
+    """
+    Mirror the picture after any rotate: horizontal swaps left and right
+    """
+    inputColor: NotRequired[
+        Literal[
+            "rec709",
+            "slog3-sgamut3cine",
+            "slog3-sgamut3",
+            "apple-log",
+            "logc3",
+            "logc4",
+            "vlog",
+            "clog2",
+            "clog3",
+            "bmd-film",
+        ]
+    ]
+    """
+    What the footage is, which its metadata can't tell, so ask rather than guess. With it, adjust's exposure, temperature and tint run before any LUT on its curve and gamut, which can recover what the LUT would clip; without it, after
+    """
+    despill: NotRequired[TransformAssetRequestRecipeDespill]
+    """
+    Remove screen-colored spill from a green- or blue-screen shot, before any LUT. It changes every pixel of that color, so use it only on screen footage. The screen stays, turned neutral; this does not key it out
+    """
+    lut: NotRequired[TransformAssetRequestRecipeLut]
+    """
+    Apply a LUT. Use one whose inputColor matches the footage: a log LUT on Rec.709 footage looks wrong, and footage metadata can't tell. A video copy is tagged Rec.709
+    """
+    adjust: NotRequired[TransformAssetRequestRecipeAdjust]
+    """
+    Basic color correction, after any LUT, so it trims what the LUT gave. Each is a whole number from -100 to 100; 0 changes nothing
+    """
+
+
+class TransformAssetRequestRecipe1Crop(TypedDict, closed=True):
+    x: int
+    """
+    Pixels from the picture's left edge to the area's
+    """
+    y: int
+    """
+    Pixels from the picture's top edge to the area's
+    """
+    width: int
+    """
+    The area's width, in pixels
+    """
+    height: int
+    """
+    The area's height, in pixels
+    """
+
+
+class TransformAssetRequestRecipe1Despill(TypedDict, closed=True):
+    screen: Literal["green", "blue"]
+    """
+    The screen color to remove from the subject
+    """
+
+
+class TransformAssetRequestRecipe1Lut(TypedDict, closed=True):
+    lutId: str
+    """
+    A LUT from this organization
+    """
+    strength: NotRequired[int]
+    """
+    How much of the LUT to apply, as a percent; default 100
+    """
+
+
+class TransformAssetRequestRecipe1Adjust(TypedDict, closed=True):
+    exposure: NotRequired[int]
+    """
+    -100 is two stops darker, 100 two stops brighter; highlights can clip
+    """
+    brightness: NotRequired[int]
+    """
+    Moves the midtones; black and white stay where they are
+    """
+    contrast: NotRequired[int]
+    """
+    -100 halves the contrast around mid gray, 100 doubles it
+    """
+    saturation: NotRequired[int]
+    """
+    -100 is black and white, 100 doubles the saturation
+    """
+    temperature: NotRequired[int]
+    """
+    Below 0 is cooler, above 0 warmer
+    """
+    tint: NotRequired[int]
+    """
+    Below 0 is greener, above 0 more magenta
+    """
+
+
+class TransformAssetRequestRecipe1Resize(TypedDict, closed=True):
+    maxEdge: int
+    """
+    Scale down proportionally so the longest edge is at most this many pixels; never enlarges
+    """
+
+
+class TransformAssetRequestRecipe1Convert(TypedDict, closed=True):
+    format: Literal["png", "jpeg", "webp"]
+    quality: NotRequired[int]
+    """
+    jpeg and webp only; default 90. An image already in the asked format that needs no resize is copied unchanged, so quality applies only when it is re-encoded
+    """
+    background: NotRequired[str]
+    """
+    jpeg only: the color that replaces transparency, such as #ffffff
+    """
+
+
+class TransformAssetRequestRecipe1(TypedDict, closed=True):
+    rotate: NotRequired[Literal[90, 180, 270]]
+    """
+    Turn the picture clockwise by this many degrees
+    """
+    flip: NotRequired[Literal["horizontal", "vertical"]]
+    """
+    Mirror the picture after any rotate: horizontal swaps left and right
+    """
+    crop: NotRequired[TransformAssetRequestRecipe1Crop]
+    """
+    Keep this area of the upright image, turned and flipped as asked, within its width and height
+    """
+    inputColor: NotRequired[
+        Literal[
+            "rec709",
+            "slog3-sgamut3cine",
+            "slog3-sgamut3",
+            "apple-log",
+            "logc3",
+            "logc4",
+            "vlog",
+            "clog2",
+            "clog3",
+            "bmd-film",
+        ]
+    ]
+    """
+    What the footage is, which its metadata can't tell, so ask rather than guess. With it, adjust's exposure, temperature and tint run before any LUT on its curve and gamut, which can recover what the LUT would clip; without it, after
+    """
+    despill: NotRequired[TransformAssetRequestRecipe1Despill]
+    """
+    Remove screen-colored spill from a green- or blue-screen shot, before any LUT. It changes every pixel of that color, so use it only on screen footage. The screen stays, turned neutral; this does not key it out
+    """
+    lut: NotRequired[TransformAssetRequestRecipe1Lut]
+    """
+    Apply a LUT. Use one whose inputColor matches the footage: a log LUT on Rec.709 footage looks wrong, and footage metadata can't tell. A video copy is tagged Rec.709
+    """
+    adjust: NotRequired[TransformAssetRequestRecipe1Adjust]
+    """
+    Basic color correction, after any LUT, so it trims what the LUT gave. Each is a whole number from -100 to 100; 0 changes nothing
+    """
+    resize: NotRequired[TransformAssetRequestRecipe1Resize]
+    convert: NotRequired[TransformAssetRequestRecipe1Convert]
+
+
+class TransformAssetRequestRecipe2Trim(TypedDict, closed=True):
+    startSeconds: float
+    """
+    Where the copy starts, in seconds
+    """
+    endSeconds: float
+    """
+    Where it ends, in seconds; at most 30 after startSeconds and within the video
+    """
+
+
+class TransformAssetRequestRecipe2FrameRate(TypedDict, closed=True):
+    fps: int
+    """
+    The copy's frames per second. 23.976, 29.97 or 59.94 footage made 24, 30 or 60 keeps every frame and runs 0.1% shorter, its sound sped up to match; any other change repeats or drops frames and keeps the length
+    """
+
+
+class TransformAssetRequestRecipe2Lengthen(TypedDict, closed=True):
+    toSeconds: float
+    """
+    The copy's length, longer than the clip after trim and speed
+    """
+    by: Literal["hold", "loop"]
+    """
+    hold: freeze the last frame, with silence. loop: play the clip again from its start, sound too
+    """
+
+
+class TransformAssetRequestRecipe2Crop(TypedDict, closed=True):
+    x: int
+    """
+    Pixels from the picture's left edge to the area's
+    """
+    y: int
+    """
+    Pixels from the picture's top edge to the area's
+    """
+    width: int
+    """
+    The area's width, in pixels
+    """
+    height: int
+    """
+    The area's height, in pixels
+    """
+
+
+class TransformAssetRequestRecipe2Despill(TypedDict, closed=True):
+    screen: Literal["green", "blue"]
+    """
+    The screen color to remove from the subject
+    """
+
+
+class TransformAssetRequestRecipe2Lut(TypedDict, closed=True):
+    lutId: str
+    """
+    A LUT from this organization
+    """
+    strength: NotRequired[int]
+    """
+    How much of the LUT to apply, as a percent; default 100
+    """
+
+
+class TransformAssetRequestRecipe2Adjust(TypedDict, closed=True):
+    exposure: NotRequired[int]
+    """
+    -100 is two stops darker, 100 two stops brighter; highlights can clip
+    """
+    brightness: NotRequired[int]
+    """
+    Moves the midtones; black and white stay where they are
+    """
+    contrast: NotRequired[int]
+    """
+    -100 halves the contrast around mid gray, 100 doubles it
+    """
+    saturation: NotRequired[int]
+    """
+    -100 is black and white, 100 doubles the saturation
+    """
+    temperature: NotRequired[int]
+    """
+    Below 0 is cooler, above 0 warmer
+    """
+    tint: NotRequired[int]
+    """
+    Below 0 is greener, above 0 more magenta
+    """
+
+
+class TransformAssetRequestRecipe2Resize(TypedDict, closed=True):
+    maxEdge: int
+    """
+    Scale down proportionally so the longest edge is at most this many pixels; never enlarges
+    """
+
+
+class TransformAssetRequestRecipe2Convert(TypedDict, closed=True):
+    format: Literal["mp4", "mov"]
+    """
+    mp4: H.264 8-bit 4:2:0, which every model and browser takes. mov: HEVC that keeps the source's 10-bit depth, 4:4:4 chroma, HDR and frame rate, for editing rather than as a model reference
+    """
+    maxBytes: NotRequired[int]
+    """
+    Keep the copy at most this many bytes, as a model's file limit asks: the bitrate is set from its length, and a copy that can't fit fails
+    """
+
+
+class TransformAssetRequestRecipe2(TypedDict, closed=True):
+    trim: NotRequired[TransformAssetRequestRecipe2Trim]
+    frameRate: NotRequired[TransformAssetRequestRecipe2FrameRate]
+    removeAudio: NotRequired[Literal[True]]
+    """
+    Leave the audio out of the copy; without it, the copy keeps the first audio track
+    """
+    reverse: NotRequired[Literal[True]]
+    """
+    Play the clip backwards, sound too. It holds every frame in memory, so a long or large clip is refused
+    """
+    speed: NotRequired[float]
+    """
+    Play this many times as fast: 2 halves the length, 0.5 doubles it. The sound keeps its pitch, and the frame rate stays the source's unless frameRate sets it. Rounds to the hundredth
+    """
+    lengthen: NotRequired[TransformAssetRequestRecipe2Lengthen]
+    rotate: NotRequired[Literal[90, 180, 270]]
+    """
+    Turn the picture clockwise by this many degrees
+    """
+    flip: NotRequired[Literal["horizontal", "vertical"]]
+    """
+    Mirror the picture after any rotate: horizontal swaps left and right
+    """
+    crop: NotRequired[TransformAssetRequestRecipe2Crop]
+    """
+    Keep this area of the upright picture, turned and flipped as asked, within its width and height. Each number rounds down to an even one, which video needs
+    """
+    inputColor: NotRequired[
+        Literal[
+            "rec709",
+            "slog3-sgamut3cine",
+            "slog3-sgamut3",
+            "apple-log",
+            "logc3",
+            "logc4",
+            "vlog",
+            "clog2",
+            "clog3",
+            "bmd-film",
+        ]
+    ]
+    """
+    What the footage is, which its metadata can't tell, so ask rather than guess. With it, adjust's exposure, temperature and tint run before any LUT on its curve and gamut, which can recover what the LUT would clip; without it, after
+    """
+    despill: NotRequired[TransformAssetRequestRecipe2Despill]
+    """
+    Remove screen-colored spill from a green- or blue-screen shot, before any LUT. It changes every pixel of that color, so use it only on screen footage. The screen stays, turned neutral; this does not key it out
+    """
+    lut: NotRequired[TransformAssetRequestRecipe2Lut]
+    """
+    Apply a LUT. Use one whose inputColor matches the footage: a log LUT on Rec.709 footage looks wrong, and footage metadata can't tell. A video copy is tagged Rec.709
+    """
+    adjust: NotRequired[TransformAssetRequestRecipe2Adjust]
+    """
+    Basic color correction, after any LUT, so it trims what the LUT gave. Each is a whole number from -100 to 100; 0 changes nothing
+    """
+    resize: NotRequired[TransformAssetRequestRecipe2Resize]
+    convert: NotRequired[TransformAssetRequestRecipe2Convert]
+
+
+class TransformAssetRequestRecipe3Trim(TypedDict, closed=True):
+    startSeconds: float
+    """
+    Where the copy starts, in seconds
+    """
+    endSeconds: float
+    """
+    Where it ends, in seconds; at most 600 after startSeconds and within the source
+    """
+
+
+class TransformAssetRequestRecipe3Convert(TypedDict, closed=True):
+    format: Literal["mp3", "wav", "aiff", "flac"]
+    """
+    mp3: 192 kbit/s, mono or stereo as the source is, which every model that takes audio accepts. wav, aiff and flac: lossless, at the source's sample rate and channels, 24-bit from a source deeper than 16, cut on the exact sample; for editing rather than as a model reference
+    """
+
+
+class TransformAssetRequestRecipe3(TypedDict, closed=True):
+    trim: NotRequired[TransformAssetRequestRecipe3Trim]
+    convert: NotRequired[TransformAssetRequestRecipe3Convert]
+    """
+    The output; an MP3 when left out. On a video, give it to ask for audio
+    """
+
+
+class TransformAssetRequest(TypedDict, closed=True):
+    recipe: (
+        TransformAssetRequestRecipe
+        | TransformAssetRequestRecipe1
+        | TransformAssetRequestRecipe2
+        | TransformAssetRequestRecipe3
+    )
+    projectId: NotRequired[str]
+    """
+    The project the copy goes into; the source asset's project when omitted
+    """
+    folderId: NotRequired[str | None]
+    """
+    A folder in that project to also add the copy to; null or omitted for Unfiled
     """
 
 
@@ -400,32 +873,51 @@ class CreateLabelRequest(TypedDict, closed=True):
 
 
 class UpdateLabelRequest(TypedDict, closed=True):
-    name: str
-    description: str
-    color: Literal[
-        "#ef4444",
-        "#f97316",
-        "#f59e0b",
-        "#eab308",
-        "#84cc16",
-        "#22c55e",
-        "#14b8a6",
-        "#06b6d4",
-        "#3b82f6",
-        "#6366f1",
-        "#8b5cf6",
-        "#ec4899",
+    name: NotRequired[str]
+    description: NotRequired[str | None]
+    """
+    null or an empty string clears it
+    """
+    color: NotRequired[
+        Literal[
+            "#ef4444",
+            "#f97316",
+            "#f59e0b",
+            "#eab308",
+            "#84cc16",
+            "#22c55e",
+            "#14b8a6",
+            "#06b6d4",
+            "#3b82f6",
+            "#6366f1",
+            "#8b5cf6",
+            "#ec4899",
+        ]
     ]
     """
     One of the preset colors: Red #ef4444, Orange #f97316, Amber #f59e0b, Yellow #eab308, Lime #84cc16, Green #22c55e, Teal #14b8a6, Cyan #06b6d4, Blue #3b82f6, Indigo #6366f1, Violet #8b5cf6, Pink #ec4899.
     """
 
 
-LabelAssetsRequestAssetId: TypeAlias = str
+class CreateAttachmentRequest(TypedDict, closed=True):
+    projectId: str
+    folderId: NotRequired[str]
+    clipId: NotRequired[str]
+    title: str
+    """
+    Verbatim title: 1–200 characters on one line, without surrounding whitespace.
+    """
+    body: str
+    """
+    Verbatim attachment text: 1–8,000 Unicode characters.
+    """
 
 
-class LabelAssetsRequest(TypedDict, closed=True):
-    assetIds: list[LabelAssetsRequestAssetId]
-    """
-    Up to 50 assets
-    """
+class ReviseAttachmentRequest(TypedDict, closed=True):
+    expectedVersion: int
+    body: str
+
+
+class RestoreAttachmentRequest(TypedDict, closed=True):
+    version: int
+    expectedVersion: int

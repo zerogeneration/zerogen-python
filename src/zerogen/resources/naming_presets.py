@@ -1,20 +1,15 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
-from urllib.parse import quote
 
 from typing_extensions import Unpack
 
-from .._options import RequestOptions
-from ..types import NamingPreset, NamingPresetList
+from .._options import PostRequestOptions, RequestOptions
+from ..types import CreateNamingPresetRequest, NamingPreset, NamingPresetList
 
 if TYPE_CHECKING:
     from .._client import AsyncZeroGen, ZeroGen
     from .._pagination import AsyncPaginator, Page
-
-
-def _path(project_id: str) -> str:
-    return f"/projects/{quote(project_id, safe='')}/naming-presets"
 
 
 class NamingPresets:
@@ -39,9 +34,19 @@ class NamingPresets:
         """
         return self._client._list(
             NamingPresetList.model_validate,
-            _path(project_id),
-            {"limit": limit, "cursor": cursor},
+            "/naming-presets",
+            {"projectId": project_id, "limit": limit, "cursor": cursor},
             options,
+        )
+
+    def create(
+        self, body: CreateNamingPresetRequest, /, **options: Unpack[PostRequestOptions]
+    ) -> NamingPreset:
+        """Saves a naming preset for everyone in `projectId`; owners and admins only. Fields
+        run in order, joined by `delimiter`, and a `version` field belongs last. A test key
+        can't create presets."""
+        return self._client._request(
+            NamingPreset.model_validate, "POST", "/naming-presets", body=body, options=options
         )
 
 
@@ -67,7 +72,17 @@ class AsyncNamingPresets:
         """
         return self._client._list(
             NamingPresetList.model_validate,
-            _path(project_id),
-            {"limit": limit, "cursor": cursor},
+            "/naming-presets",
+            {"projectId": project_id, "limit": limit, "cursor": cursor},
             options,
+        )
+
+    async def create(
+        self, body: CreateNamingPresetRequest, /, **options: Unpack[PostRequestOptions]
+    ) -> NamingPreset:
+        """Saves a naming preset for everyone in `projectId`; owners and admins only. Fields
+        run in order, joined by `delimiter`, and a `version` field belongs last. A test key
+        can't create presets."""
+        return await self._client._request(
+            NamingPreset.model_validate, "POST", "/naming-presets", body=body, options=options
         )

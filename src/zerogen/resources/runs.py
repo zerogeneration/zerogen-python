@@ -1,34 +1,45 @@
 from __future__ import annotations
 
 import inspect
+import os
 import threading
-from collections.abc import Callable
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Sequence
+from datetime import datetime
+from typing import TYPE_CHECKING, Literal, overload
 from urllib.parse import quote
 
 from typing_extensions import Unpack
 
 from .._errors import WaitCancelledError
 from .._options import PostRequestOptions, RequestOptions, without_idempotency_key
-from ..types import CreateRunRequest, Quote, Run, RunList
+from ..types import AssetDownload, CreateRunRequest, Quote, Run, RunList, TransformRun
+from . import _downloads
+from ._downloads import Download, DownloadDestination, DownloadInfo, SavedDownload
 
 if TYPE_CHECKING:
-    from .._client import AsyncZeroGen, ZeroGen
+    from .._client import AsyncZeroGen, Query, ZeroGen
     from .._pagination import AsyncPaginator, Page
 
 MAX_WAIT_SECONDS = 60
 """The most the API holds a response for a run to end."""
-_ENDED = frozenset({"succeeded", "partial", "failed", "cancelled"})
 _CANCEL_CHECK_SECONDS = 0.05
 
+RunStatus = Literal["queued", "running", "succeeded", "partial", "failed", "cancelled"]
 
-def has_ended(run: Run) -> bool:
-    """Whether a run has ended: succeeded, partial, failed or cancelled."""
-    return run.status in _ENDED
+
+def has_ended(run: Run | TransformRun) -> bool:
+    """Whether a run has ended, whatever its status: the API sets `ended_at` exactly when it
+    has. Check each output whatever the status, since a failed or cancelled run can still hold
+    succeeded outputs."""
+    return run.ended_at is not None
 
 
 def _path(id: str) -> str:
     return f"/runs/{quote(id, safe='')}"
+
+
+def _output_download_path(id: str, asset_id: str) -> str:
+    return f"{_path(id)}/outputs/{quote(asset_id, safe='')}/download"
 
 
 def _check_poll(poll: int) -> None:
@@ -36,12 +47,51 @@ def _check_poll(poll: int) -> None:
         raise ValueError(f"poll takes 1 to {MAX_WAIT_SECONDS} seconds.")
 
 
+def _values(value: str | Sequence[str] | None) -> list[str] | None:
+    if value is None:
+        return None
+    return [value] if isinstance(value, str) else list(value)
+
+
+def _time(value: str | datetime | None) -> str | None:
+    """An RFC 3339 time: a string as it is, or a datetime that knows its time zone."""
+    if not isinstance(value, datetime):
+        return value
+    if value.utcoffset() is None:
+        raise ValueError("Pass a datetime with a time zone, such as datetime.now(timezone.utc).")
+    return value.isoformat()
+
+
+def _list_query(
+    project_id: str | None,
+    folder_id: str | None,
+    created_by: str | Sequence[str] | None,
+    status: RunStatus | Sequence[RunStatus] | None,
+    created_after: str | datetime | None,
+    created_before: str | datetime | None,
+    limit: int | None,
+    cursor: str | None,
+) -> Query:
+    return {
+        "projectId": project_id,
+        "folderId": folder_id,
+        "createdBy": _values(created_by),
+        "status": _values(status),
+        "createdAfter": _time(created_after),
+        "createdBefore": _time(created_before),
+        "limit": limit,
+        "cursor": cursor,
+    }
+
+
 class Runs:
     def __init__(self, client: ZeroGen) -> None:
         self._client = client
 
     def quote(self, body: CreateRunRequest, /, **options: Unpack[PostRequestOptions]) -> Quote:
-        """Prices a request without starting it."""
+        """Prices a request without starting it, and returns the inputs a create would use.
+        Needs `models:read`, not `runs:create`. Send the quote's `inputs` with the create so it
+        reuses the assets the quote imported from `https` URLs."""
         return self._client._request(
             Quote.model_validate, "POST", "/runs/quote", body=body, options=options
         )
@@ -74,7 +124,7 @@ class Runs:
     ) -> Run:
         """Starts a run and returns it when it ends.
 
-        Check its `status`: a run that failed returns too.
+        Check its `status` and each output's: a run that failed returns too.
         """
         run = self.create(body, wait=MAX_WAIT_SECONDS, **options)
         if has_ended(run):
@@ -82,7 +132,7 @@ class Runs:
         return self.wait_for(run.id, **without_idempotency_key(options))
 
     def get(self, id: str, /, *, wait: int | None = None, **options: Unpack[RequestOptions]) -> Run:
-        """Reads a run.
+        """Reads any run in the organization.
 
         Args:
             wait: Seconds the API may hold the response until the run ends, up to 60.
@@ -102,7 +152,7 @@ class Runs:
         cancel: threading.Event | None = None,
         **options: Unpack[RequestOptions],
     ) -> Run:
-        """Returns a run when it ends.
+        """Returns a run when it ends, which its `ended_at` says, whatever its status.
 
         Args:
             poll: Seconds each read may wait for the run to end, from 1 to 60. The API answers
@@ -154,30 +204,121 @@ class Runs:
         *,
         project_id: str | None = None,
         folder_id: str | None = None,
+        created_by: str | Sequence[str] | None = None,
+        status: RunStatus | Sequence[RunStatus] | None = None,
+        created_after: str | datetime | None = None,
+        created_before: str | datetime | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         **options: Unpack[RequestOptions],
     ) -> Page[Run]:
-        """Lists the runs of the API key's owner, newest first.
+        """Lists the organization's runs, whoever started them, newest first. A test key lists
+        its sandbox's runs.
 
         Args:
             project_id: Only runs in this project.
             folder_id: Only runs filed in this folder; needs `project_id`.
-            limit: Runs per page, up to 20; default 10.
+            created_by: Only runs any of these users started, by the ID in a run's
+                `created_by` or `me()`.
+            status: Only runs with any of these statuses.
+            created_after: Only runs created at or after this time: an RFC 3339 string, such
+                as `"2026-11-10T00:00:00Z"`, or a datetime with a time zone.
+            created_before: Only runs created before this time.
+            limit: Runs per page, up to 100; default 10.
             cursor: `next_cursor` from an earlier page, with the same filters.
         """
         return self._client._list(
             RunList.model_validate,
             "/runs",
-            {"projectId": project_id, "folderId": folder_id, "limit": limit, "cursor": cursor},
+            _list_query(
+                project_id,
+                folder_id,
+                created_by,
+                status,
+                created_after,
+                created_before,
+                limit,
+                cursor,
+            ),
             options,
         )
 
     def cancel(self, id: str, /, **options: Unpack[PostRequestOptions]) -> Run:
         """Stops a run's unfinished outputs. Outputs that already finished are kept and
-        charged."""
+        charged. An output its provider already started can't be stopped: the run stays
+        `running`, and that output is delivered and charged when it finishes. You can cancel
+        the runs you started; an owner or admin can cancel any."""
         return self._client._request(
             Run.model_validate, "POST", f"{_path(id)}/cancel", options=options
+        )
+
+    def get_output_download(
+        self, id: str, asset_id: str, /, **options: Unpack[RequestOptions]
+    ) -> AssetDownload:
+        """Reads a signed link to a succeeded output's original file, by the run's ID and the
+        output's `asset.id`, with its filename, media type and size. Needs only `runs:read`.
+        The link is valid for 5 minutes, and anyone holding it can download the file, so keep
+        it private. To fetch the file, use `download_output`."""
+        return self._client._request(
+            AssetDownload.model_validate,
+            "GET",
+            _output_download_path(id, asset_id),
+            options=options,
+        )
+
+    @overload
+    def download_output(
+        self, id: str, asset_id: str, /, **options: Unpack[RequestOptions]
+    ) -> Download: ...
+
+    @overload
+    def download_output(
+        self,
+        id: str,
+        asset_id: str,
+        /,
+        destination: DownloadDestination,
+        **options: Unpack[RequestOptions],
+    ) -> DownloadInfo: ...
+
+    def download_output(
+        self,
+        id: str,
+        asset_id: str,
+        /,
+        destination: DownloadDestination | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> Download | DownloadInfo:
+        """Downloads a succeeded output's original file, as `assets.download` does, with only
+        `runs:read`. Returns a `Download` with its bytes, or streams them into `destination`
+        and returns a `DownloadInfo`.
+
+        Args:
+            destination: A path, which is removed again if the download fails partway, or a
+                binary file object open for writing.
+        """
+        return _downloads.download(
+            self._client,
+            lambda: self.get_output_download(id, asset_id, **options),
+            destination,
+            options,
+        )
+
+    def download_output_to(
+        self,
+        id: str,
+        asset_id: str,
+        directory: str | os.PathLike[str],
+        /,
+        **options: Unpack[RequestOptions],
+    ) -> SavedDownload:
+        """Downloads a succeeded output's original file into `directory`, as
+        `assets.download_to` does, with only `runs:read`, and returns where it saved it."""
+        return _downloads.download_to(
+            self._client,
+            lambda: self.get_output_download(id, asset_id, **options),
+            directory,
+            options,
         )
 
 
@@ -188,7 +329,9 @@ class AsyncRuns:
     async def quote(
         self, body: CreateRunRequest, /, **options: Unpack[PostRequestOptions]
     ) -> Quote:
-        """Prices a request without starting it."""
+        """Prices a request without starting it, and returns the inputs a create would use.
+        Needs `models:read`, not `runs:create`. Send the quote's `inputs` with the create so it
+        reuses the assets the quote imported from `https` URLs."""
         return await self._client._request(
             Quote.model_validate, "POST", "/runs/quote", body=body, options=options
         )
@@ -221,8 +364,8 @@ class AsyncRuns:
     ) -> Run:
         """Starts a run and returns it when it ends.
 
-        Check its `status`: a run that failed returns too. Cancel the task to stop
-        waiting; the run keeps running.
+        Check its `status` and each output's: a run that failed returns too. Cancel the task
+        to stop waiting; the run keeps running.
         """
         run = await self.create(body, wait=MAX_WAIT_SECONDS, **options)
         if has_ended(run):
@@ -232,7 +375,7 @@ class AsyncRuns:
     async def get(
         self, id: str, /, *, wait: int | None = None, **options: Unpack[RequestOptions]
     ) -> Run:
-        """Reads a run.
+        """Reads any run in the organization.
 
         Args:
             wait: Seconds the API may hold the response until the run ends, up to 60.
@@ -251,8 +394,8 @@ class AsyncRuns:
         on_update: Callable[[Run], object] | None = None,
         **options: Unpack[RequestOptions],
     ) -> Run:
-        """Returns a run when it ends. Cancel the task to stop waiting; the run keeps
-        running.
+        """Returns a run when it ends, which its `ended_at` says, whatever its status. Cancel
+        the task to stop waiting; the run keeps running.
 
         Args:
             poll: Seconds each read may wait for the run to end, from 1 to 60. The API answers
@@ -276,28 +419,119 @@ class AsyncRuns:
         *,
         project_id: str | None = None,
         folder_id: str | None = None,
+        created_by: str | Sequence[str] | None = None,
+        status: RunStatus | Sequence[RunStatus] | None = None,
+        created_after: str | datetime | None = None,
+        created_before: str | datetime | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         **options: Unpack[RequestOptions],
     ) -> AsyncPaginator[Run]:
-        """Lists the runs of the API key's owner, newest first.
+        """Lists the organization's runs, whoever started them, newest first. A test key lists
+        its sandbox's runs.
 
         Args:
             project_id: Only runs in this project.
             folder_id: Only runs filed in this folder; needs `project_id`.
-            limit: Runs per page, up to 20; default 10.
+            created_by: Only runs any of these users started, by the ID in a run's
+                `created_by` or `me()`.
+            status: Only runs with any of these statuses.
+            created_after: Only runs created at or after this time: an RFC 3339 string, such
+                as `"2026-11-10T00:00:00Z"`, or a datetime with a time zone.
+            created_before: Only runs created before this time.
+            limit: Runs per page, up to 100; default 10.
             cursor: `next_cursor` from an earlier page, with the same filters.
         """
         return self._client._list(
             RunList.model_validate,
             "/runs",
-            {"projectId": project_id, "folderId": folder_id, "limit": limit, "cursor": cursor},
+            _list_query(
+                project_id,
+                folder_id,
+                created_by,
+                status,
+                created_after,
+                created_before,
+                limit,
+                cursor,
+            ),
             options,
         )
 
     async def cancel(self, id: str, /, **options: Unpack[PostRequestOptions]) -> Run:
         """Stops a run's unfinished outputs. Outputs that already finished are kept and
-        charged."""
+        charged. An output its provider already started can't be stopped: the run stays
+        `running`, and that output is delivered and charged when it finishes. You can cancel
+        the runs you started; an owner or admin can cancel any."""
         return await self._client._request(
             Run.model_validate, "POST", f"{_path(id)}/cancel", options=options
+        )
+
+    async def get_output_download(
+        self, id: str, asset_id: str, /, **options: Unpack[RequestOptions]
+    ) -> AssetDownload:
+        """Reads a signed link to a succeeded output's original file, by the run's ID and the
+        output's `asset.id`, with its filename, media type and size. Needs only `runs:read`.
+        The link is valid for 5 minutes, and anyone holding it can download the file, so keep
+        it private. To fetch the file, use `download_output`."""
+        return await self._client._request(
+            AssetDownload.model_validate,
+            "GET",
+            _output_download_path(id, asset_id),
+            options=options,
+        )
+
+    @overload
+    async def download_output(
+        self, id: str, asset_id: str, /, **options: Unpack[RequestOptions]
+    ) -> Download: ...
+
+    @overload
+    async def download_output(
+        self,
+        id: str,
+        asset_id: str,
+        /,
+        destination: DownloadDestination,
+        **options: Unpack[RequestOptions],
+    ) -> DownloadInfo: ...
+
+    async def download_output(
+        self,
+        id: str,
+        asset_id: str,
+        /,
+        destination: DownloadDestination | None = None,
+        **options: Unpack[RequestOptions],
+    ) -> Download | DownloadInfo:
+        """Downloads a succeeded output's original file, as `assets.download` does, with only
+        `runs:read`. Returns a `Download` with its bytes, or streams them into `destination`
+        and returns a `DownloadInfo`.
+
+        Args:
+            destination: A path, which is removed again if the download fails partway, or a
+                binary file object open for writing, written to in a worker thread.
+        """
+        return await _downloads.async_download(
+            self._client,
+            lambda: self.get_output_download(id, asset_id, **options),
+            destination,
+            options,
+        )
+
+    async def download_output_to(
+        self,
+        id: str,
+        asset_id: str,
+        directory: str | os.PathLike[str],
+        /,
+        **options: Unpack[RequestOptions],
+    ) -> SavedDownload:
+        """Downloads a succeeded output's original file into `directory`, as
+        `assets.download_to` does, with only `runs:read`, and returns where it saved it."""
+        return await _downloads.async_download_to(
+            self._client,
+            lambda: self.get_output_download(id, asset_id, **options),
+            directory,
+            options,
         )

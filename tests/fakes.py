@@ -104,21 +104,29 @@ def api_error(
     *,
     retryable: bool = False,
     param: str | None = None,
+    details: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> httpx.Response:
     error: dict[str, Any] = {"code": code, "message": f"{code} message", "retryable": retryable}
     if param is not None:
         error["param"] = param
+    if details is not None:
+        error["details"] = details
     return json_response({"error": error}, status, headers)
 
 
 CREATOR = {"id": "u1", "name": "Ada Lovelace"}
+ENDED_AT = "2026-10-25T00:00:10.000Z"
+FINAL = {"succeeded", "partial", "failed", "cancelled"}
+"""The statuses the fakes give an `endedAt`, as the API does. The client itself reads only
+`endedAt`."""
 
 
 def run_body(id: str = "g1", status: str = "queued", **fields: Any) -> dict[str, Any]:
     return {
         "id": id,
         "projectId": "p1",
+        "kind": "generation",
         "model": "openai/gpt-image-2/generate",
         "modelVersion": None,
         "status": status,
@@ -134,11 +142,18 @@ def run_body(id: str = "g1", status: str = "queued", **fields: Any) -> dict[str,
         "createdAt": "2026-10-25T00:00:00.000Z",
         "startedAt": None,
         "finishedAt": None,
+        "endedAt": ENDED_AT if status in FINAL else None,
         "createdBy": CREATOR,
         "createdVia": "api",
+        "request": {"model": "openai/gpt-image-2/generate", "prompt": "A lighthouse at dawn"},
         "webUrl": None,
         **fields,
     }
+
+
+def transform_body(id: str = "g1", status: str = "queued", **fields: Any) -> dict[str, Any]:
+    """A transform's run, as `POST /assets/{assetId}/transform` returns it."""
+    return run_body(id, status, kind="transform", model=None, request=None, **fields)
 
 
 def model(id: str) -> dict[str, Any]:

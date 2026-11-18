@@ -8,10 +8,10 @@ from typing_extensions import Unpack
 
 from .._options import PostRequestOptions, RequestOptions
 from ..types import (
+    AssetBatchChange,
+    AssetBatchRequest,
     CreateFolderRequest,
     Folder,
-    FolderAssetsChange,
-    FolderAssetsRequest,
     FolderDelete,
     FolderList,
     FolderRestore,
@@ -25,9 +25,8 @@ if TYPE_CHECKING:
     from .._pagination import AsyncPaginator, Page
 
 
-def _path(project_id: str, folder_id: str | None = None) -> str:
-    path = f"/projects/{quote(project_id, safe='')}/folders"
-    return path if folder_id is None else f"{path}/{quote(folder_id, safe='')}"
+def _path(folder_id: str) -> str:
+    return f"/folders/{quote(folder_id, safe='')}"
 
 
 def _names(path: str | Sequence[str]) -> list[str]:
@@ -60,23 +59,24 @@ class Folders:
         """
         return self._client._list(
             FolderList.model_validate,
-            _path(project_id),
-            {"limit": limit, "cursor": cursor},
+            "/folders",
+            {"projectId": project_id, "limit": limit, "cursor": cursor},
             options,
         )
 
-    def create(
-        self,
-        project_id: str,
-        body: CreateFolderRequest,
-        /,
-        **options: Unpack[PostRequestOptions],
-    ) -> Folder:
-        """Creates a folder at the project root or under `parentId`. With `reuseExisting`, a
-        folder of that name already under the parent is returned instead. A test key can't
-        create folders."""
+    def get(self, folder_id: str, /, **options: Unpack[RequestOptions]) -> Folder:
+        """Reads a folder by its ID alone, in whichever of the organization's projects holds
+        it."""
         return self._client._request(
-            Folder.model_validate, "POST", _path(project_id), body=body, options=options
+            Folder.model_validate, "GET", _path(folder_id), options=options
+        )
+
+    def create(self, body: CreateFolderRequest, /, **options: Unpack[PostRequestOptions]) -> Folder:
+        """Creates a folder in `projectId`, at its root or under `parentId`. With
+        `reuseExisting`, a folder of that name already under the parent is returned instead. A
+        test key can't create folders."""
+        return self._client._request(
+            Folder.model_validate, "POST", "/folders", body=body, options=options
         )
 
     def ensure_path(
@@ -100,33 +100,37 @@ class Folders:
         """
         folder: Folder | None = None
         for name in _names(path):
-            body: CreateFolderRequest = {"name": name, "parentId": parent_id, "reuseExisting": True}
-            folder = self.create(project_id, body, **options)
+            body: CreateFolderRequest = {
+                "projectId": project_id,
+                "name": name,
+                "parentId": parent_id,
+                "reuseExisting": True,
+            }
+            folder = self.create(body, **options)
             parent_id = folder.id
         assert folder is not None
         return folder
 
     def update(
         self,
-        project_id: str,
         folder_id: str,
         body: UpdateFolderRequest,
         /,
-        **options: Unpack[RequestOptions],
+        **options: Unpack[PostRequestOptions],
     ) -> Folder:
-        """Renames a folder, moves it under another parent (or to the project root with
-        `parentId` None), or both. Its assets and subfolders keep their IDs."""
+        """Renames a folder, moves it under another parent in its project (or to the project
+        root with `parentId` None), or both, together: a refused move leaves the name unchanged
+        too. Its assets and subfolders keep their IDs."""
         return self._client._request(
             Folder.model_validate,
             "PATCH",
-            _path(project_id, folder_id),
+            _path(folder_id),
             body=body,
             options=options,
         )
 
     def delete(
         self,
-        project_id: str,
         folder_id: str,
         /,
         *,
@@ -145,14 +149,13 @@ class Folders:
         return self._client._request(
             FolderDelete.model_validate,
             "DELETE",
-            _path(project_id, folder_id),
+            _path(folder_id),
             query={"assets": assets},
             options=options,
         )
 
     def restore(
         self,
-        project_id: str,
         body: RestoreFolderRequest,
         /,
         **options: Unpack[PostRequestOptions],
@@ -163,60 +166,58 @@ class Folders:
         return self._client._request(
             FolderRestore.model_validate,
             "POST",
-            f"{_path(project_id)}/restore",
+            "/folders/restore",
             body=body,
             options=options,
         )
 
     def add_assets(
         self,
-        project_id: str,
         folder_id: str,
-        body: FolderAssetsRequest,
+        body: AssetBatchRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> FolderAssetsChange:
-        """Adds up to 100 assets to a folder, keeping their other folders."""
+    ) -> AssetBatchChange:
+        """Adds up to 100 assets in the folder's project to a folder, keeping their other
+        folders. Returns the assets it changed and those it skipped."""
         return self._client._request(
-            FolderAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            f"{_path(project_id, folder_id)}/assets",
+            f"{_path(folder_id)}/assets",
             body=body,
             options=options,
         )
 
     def move_assets(
         self,
-        project_id: str,
         folder_id: str,
         body: MoveAssetsRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> FolderAssetsChange:
+    ) -> AssetBatchChange:
         """Moves up to 100 assets out of `fromFolderId` and into a folder; their other folders
-        keep them."""
+        keep them. Returns the assets it changed and those it skipped."""
         return self._client._request(
-            FolderAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            f"{_path(project_id, folder_id)}/assets/move",
+            f"{_path(folder_id)}/assets/move",
             body=body,
             options=options,
         )
 
     def remove_assets(
         self,
-        project_id: str,
         folder_id: str,
-        body: FolderAssetsRequest,
+        body: AssetBatchRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> FolderAssetsChange:
+    ) -> AssetBatchChange:
         """Takes up to 100 assets out of a folder. They stay in the Library and in their other
-        folders."""
+        folders. Returns the assets it changed and those it skipped."""
         return self._client._request(
-            FolderAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            f"{_path(project_id, folder_id)}/assets/remove",
+            f"{_path(folder_id)}/assets/remove",
             body=body,
             options=options,
         )
@@ -243,23 +244,26 @@ class AsyncFolders:
         """
         return self._client._list(
             FolderList.model_validate,
-            _path(project_id),
-            {"limit": limit, "cursor": cursor},
+            "/folders",
+            {"projectId": project_id, "limit": limit, "cursor": cursor},
             options,
         )
 
-    async def create(
-        self,
-        project_id: str,
-        body: CreateFolderRequest,
-        /,
-        **options: Unpack[PostRequestOptions],
-    ) -> Folder:
-        """Creates a folder at the project root or under `parentId`. With `reuseExisting`, a
-        folder of that name already under the parent is returned instead. A test key can't
-        create folders."""
+    async def get(self, folder_id: str, /, **options: Unpack[RequestOptions]) -> Folder:
+        """Reads a folder by its ID alone, in whichever of the organization's projects holds
+        it."""
         return await self._client._request(
-            Folder.model_validate, "POST", _path(project_id), body=body, options=options
+            Folder.model_validate, "GET", _path(folder_id), options=options
+        )
+
+    async def create(
+        self, body: CreateFolderRequest, /, **options: Unpack[PostRequestOptions]
+    ) -> Folder:
+        """Creates a folder in `projectId`, at its root or under `parentId`. With
+        `reuseExisting`, a folder of that name already under the parent is returned instead. A
+        test key can't create folders."""
+        return await self._client._request(
+            Folder.model_validate, "POST", "/folders", body=body, options=options
         )
 
     async def ensure_path(
@@ -283,33 +287,37 @@ class AsyncFolders:
         """
         folder: Folder | None = None
         for name in _names(path):
-            body: CreateFolderRequest = {"name": name, "parentId": parent_id, "reuseExisting": True}
-            folder = await self.create(project_id, body, **options)
+            body: CreateFolderRequest = {
+                "projectId": project_id,
+                "name": name,
+                "parentId": parent_id,
+                "reuseExisting": True,
+            }
+            folder = await self.create(body, **options)
             parent_id = folder.id
         assert folder is not None
         return folder
 
     async def update(
         self,
-        project_id: str,
         folder_id: str,
         body: UpdateFolderRequest,
         /,
-        **options: Unpack[RequestOptions],
+        **options: Unpack[PostRequestOptions],
     ) -> Folder:
-        """Renames a folder, moves it under another parent (or to the project root with
-        `parentId` None), or both. Its assets and subfolders keep their IDs."""
+        """Renames a folder, moves it under another parent in its project (or to the project
+        root with `parentId` None), or both, together: a refused move leaves the name unchanged
+        too. Its assets and subfolders keep their IDs."""
         return await self._client._request(
             Folder.model_validate,
             "PATCH",
-            _path(project_id, folder_id),
+            _path(folder_id),
             body=body,
             options=options,
         )
 
     async def delete(
         self,
-        project_id: str,
         folder_id: str,
         /,
         *,
@@ -328,14 +336,13 @@ class AsyncFolders:
         return await self._client._request(
             FolderDelete.model_validate,
             "DELETE",
-            _path(project_id, folder_id),
+            _path(folder_id),
             query={"assets": assets},
             options=options,
         )
 
     async def restore(
         self,
-        project_id: str,
         body: RestoreFolderRequest,
         /,
         **options: Unpack[PostRequestOptions],
@@ -346,60 +353,58 @@ class AsyncFolders:
         return await self._client._request(
             FolderRestore.model_validate,
             "POST",
-            f"{_path(project_id)}/restore",
+            "/folders/restore",
             body=body,
             options=options,
         )
 
     async def add_assets(
         self,
-        project_id: str,
         folder_id: str,
-        body: FolderAssetsRequest,
+        body: AssetBatchRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> FolderAssetsChange:
-        """Adds up to 100 assets to a folder, keeping their other folders."""
+    ) -> AssetBatchChange:
+        """Adds up to 100 assets in the folder's project to a folder, keeping their other
+        folders. Returns the assets it changed and those it skipped."""
         return await self._client._request(
-            FolderAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            f"{_path(project_id, folder_id)}/assets",
+            f"{_path(folder_id)}/assets",
             body=body,
             options=options,
         )
 
     async def move_assets(
         self,
-        project_id: str,
         folder_id: str,
         body: MoveAssetsRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> FolderAssetsChange:
+    ) -> AssetBatchChange:
         """Moves up to 100 assets out of `fromFolderId` and into a folder; their other folders
-        keep them."""
+        keep them. Returns the assets it changed and those it skipped."""
         return await self._client._request(
-            FolderAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            f"{_path(project_id, folder_id)}/assets/move",
+            f"{_path(folder_id)}/assets/move",
             body=body,
             options=options,
         )
 
     async def remove_assets(
         self,
-        project_id: str,
         folder_id: str,
-        body: FolderAssetsRequest,
+        body: AssetBatchRequest,
         /,
         **options: Unpack[PostRequestOptions],
-    ) -> FolderAssetsChange:
+    ) -> AssetBatchChange:
         """Takes up to 100 assets out of a folder. They stay in the Library and in their other
-        folders."""
+        folders. Returns the assets it changed and those it skipped."""
         return await self._client._request(
-            FolderAssetsChange.model_validate,
+            AssetBatchChange.model_validate,
             "POST",
-            f"{_path(project_id, folder_id)}/assets/remove",
+            f"{_path(folder_id)}/assets/remove",
             body=body,
             options=options,
         )
