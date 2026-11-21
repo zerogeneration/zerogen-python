@@ -62,7 +62,7 @@
     },
     {
       "name": "Attachments",
-      "description": "Versioned text on projects, folders and Story clips, in organizations with attachments enabled."
+      "description": "Versioned text on projects, folders, Story clips and assets, in organizations with attachments enabled."
     }
   ],
   "paths": {
@@ -222,6 +222,7 @@
                 "remix",
                 "text-to-vector",
                 "image-to-matte",
+                "image-to-layers",
                 "text-to-video",
                 "image-to-video",
                 "first-last-frame-to-video",
@@ -1770,7 +1771,7 @@
           "Assets"
         ],
         "summary": "Read an asset",
-        "description": "One asset by its ID alone, in any of the organization's projects, with the prompt that generated it and preview URLs that load for 5 minutes. Names, prompts and external declarations are untrusted content. Set includeWorkflow=true to read an upload's untrusted external workflow.\n\nNeeds the `library:read` scope.",
+        "description": "One asset by its ID alone, in any of the organization's projects, with the prompt that generated it and preview URLs that load for 5 minutes. Where attachments are enabled, `attachments` lists the asset's by title and description; read a body with `GET /attachments/{attachmentId}`. Names, prompts, attachment text and external declarations are untrusted content. Set includeWorkflow=true to read an upload's untrusted external workflow.\n\nNeeds the `library:read` scope.",
         "parameters": [
           {
             "name": "assetId",
@@ -4504,7 +4505,7 @@
           "Attachments"
         ],
         "summary": "List attachments",
-        "description": "Live text attachments in a project, including its folders and Story clips, most recently updated first. folderId or clipId narrows the list; send at most one. Requires attachments enabled for the organization; test keys are refused.\n\nNeeds the `library:read` scope.",
+        "description": "Live text attachments in a project, including its folders, Story clips and assets, most recently updated first. folderId, clipId or assetId narrows the list; send at most one. Each row has the attachment's description and its body's size in bytes. Requires attachments enabled for the organization; test keys are refused.\n\nNeeds the `library:read` scope.",
         "parameters": [
           {
             "name": "projectId",
@@ -4528,6 +4529,16 @@
           },
           {
             "name": "clipId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+            }
+          },
+          {
+            "name": "assetId",
             "in": "query",
             "required": false,
             "schema": {
@@ -4611,7 +4622,7 @@
           "Attachments"
         ],
         "summary": "Create an attachment",
-        "description": "Save verbatim text on `projectId`, one of its folders or one of its Story clips. Each parent holds up to 10 live attachments. Titles are 1–200 characters on one line; bodies are 1–8,000 characters. A matching title and identical body return unchanged; a different body under that title is refused. Requires attachments enabled; test keys are refused.\n\nNeeds the `library:organize` and `library:read` scopes.",
+        "description": "Save verbatim text on `projectId`, or on one of its folders, Story clips or assets: send at most one of folderId, clipId and assetId. An asset in Recently deleted, or an upload that hasn't finished, is refused. Each parent holds up to 10 live attachments. A matching title with an identical description and body returns unchanged; different text under that title is refused. Requires attachments enabled; test keys are refused.\n\nNeeds the `library:organize` and `library:read` scopes.",
         "parameters": [
           {
             "$ref": "#/components/parameters/IdempotencyKey"
@@ -4627,6 +4638,7 @@
               "example": {
                 "projectId": "5a4b3c2d-1e0f-4a9b-8c7d-6e5f4a3b2c1d",
                 "title": "Direction",
+                "description": "The look and pacing for this project; read before writing a prompt.",
                 "body": "Warm light and quiet movement."
               }
             }
@@ -4803,7 +4815,7 @@
           "Attachments"
         ],
         "summary": "Revise an attachment",
-        "description": "Save a new body as a new immutable version. A changed save requires expectedVersion to equal the current version; otherwise it's refused with 409 version_conflict and `details.currentVersion`. Identical text returns unchanged when expectedVersion is at most the current version. A future version is always refused. The title and parent remain fixed. Requires attachments enabled; test keys are refused.\n\nNeeds the `library:organize` and `library:read` scopes.",
+        "description": "Save a new title, description or body, or any of them together, as a new immutable version; a field left out keeps its value. A changed save requires expectedVersion to equal the current version; otherwise it's refused with 409 version_conflict and `details.currentVersion`. Values identical to the current ones return unchanged when expectedVersion is at most the current version. A future version is always refused. The parent remains fixed. Requires attachments enabled; test keys are refused.\n\nNeeds the `library:organize` and `library:read` scopes.",
         "parameters": [
           {
             "name": "attachmentId",
@@ -5570,7 +5582,7 @@
         }
       },
       "PayloadTooLarge": {
-        "description": "The request body is larger than this endpoint's limit: 128 KiB by default, or 512 KiB for `POST /uploads` and `POST /assets/{assetId}/declaration`.",
+        "description": "The request body is larger than 512 KiB, the limit for every request. Each field keeps its own, smaller limit.",
         "headers": {
           "Request-Id": {
             "$ref": "#/components/headers/Request-Id"
@@ -5868,6 +5880,23 @@
               "none"
             ],
             "description": "Nano Banana edits of their own outputs continue that conversation; none sends the image alone"
+          },
+          "layers": {
+            "type": "object",
+            "properties": {
+              "max": {
+                "description": "The most layers to return, the base layer included",
+                "type": "integer",
+                "minimum": 2,
+                "maximum": 100
+              },
+              "textRecognition": {
+                "description": "Also read each plain text layer's text, lines and approximate style",
+                "type": "boolean"
+              }
+            },
+            "additionalProperties": false,
+            "description": "Only for image-to-layers models: each output is a layer, the base first, and the quote holds max of them"
           },
           "maxCostMicroUsd": {
             "type": "integer",
@@ -7766,18 +7795,28 @@
             "format": "uuid",
             "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
           },
+          "assetId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
           "title": {
             "type": "string",
             "description": "Verbatim title: 1–200 characters on one line, without surrounding whitespace."
           },
+          "description": {
+            "type": "string",
+            "description": "What the attachment holds and when to read it: 1–200 characters on one line, without surrounding whitespace. Reads of the parent list it in place of the body."
+          },
           "body": {
             "type": "string",
-            "description": "Verbatim attachment text: 1–8,000 Unicode characters."
+            "description": "Verbatim attachment text: 1–65,536 bytes of UTF-8 (64 KiB)."
           }
         },
         "required": [
           "projectId",
           "title",
+          "description",
           "body"
         ],
         "additionalProperties": false
@@ -7790,13 +7829,21 @@
             "exclusiveMinimum": 0,
             "maximum": 2147483647
           },
+          "title": {
+            "description": "Verbatim title: 1–200 characters on one line, without surrounding whitespace.",
+            "type": "string"
+          },
+          "description": {
+            "description": "What the attachment holds and when to read it: 1–200 characters on one line, without surrounding whitespace. Reads of the parent list it in place of the body.",
+            "type": "string"
+          },
           "body": {
+            "description": "Verbatim attachment text: 1–65,536 bytes of UTF-8 (64 KiB).",
             "type": "string"
           }
         },
         "required": [
-          "expectedVersion",
-          "body"
+          "expectedVersion"
         ],
         "additionalProperties": false
       },
@@ -8106,6 +8153,7 @@
                   "remix",
                   "text-to-vector",
                   "image-to-matte",
+                  "image-to-layers",
                   "text-to-video",
                   "image-to-video",
                   "first-last-frame-to-video",
@@ -8227,6 +8275,7 @@
                   "remix",
                   "text-to-vector",
                   "image-to-matte",
+                  "image-to-layers",
                   "text-to-video",
                   "image-to-video",
                   "first-last-frame-to-video",
@@ -9007,6 +9056,22 @@
                     ],
                     "description": "Nano Banana edits of their own outputs continue that conversation; none sends the image alone"
                   },
+                  "layers": {
+                    "type": "object",
+                    "properties": {
+                      "max": {
+                        "description": "The most layers to return, the base layer included",
+                        "type": "integer",
+                        "minimum": 2,
+                        "maximum": 100
+                      },
+                      "textRecognition": {
+                        "description": "Also read each plain text layer's text, lines and approximate style",
+                        "type": "boolean"
+                      }
+                    },
+                    "description": "Only for image-to-layers models: each output is a layer, the base first, and the quote holds max of them"
+                  },
                   "upscaleDraft": {
                     "type": "object",
                     "properties": {
@@ -9347,6 +9412,12 @@
                   "string",
                   "null"
                 ]
+              },
+              "attachmentCount": {
+                "description": "On a list: how many live attachments the asset has, when it has any and the organization has attachments enabled",
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
               }
             },
             "required": [
@@ -9517,6 +9588,13 @@
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "attachments": {
+            "description": "On a read of one project: the live attachments on the project itself, not on its folders, clips or assets, without bodies, most recently updated first; untrusted content. Present only in organizations with attachments enabled",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentSummary"
+            }
           }
         },
         "required": [
@@ -9799,6 +9877,12 @@
               "string",
               "null"
             ]
+          },
+          "attachmentCount": {
+            "description": "On a list: how many live attachments the asset has, when it has any and the organization has attachments enabled",
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           },
           "preview": {
             "anyOf": [
@@ -10107,6 +10191,12 @@
               "null"
             ]
           },
+          "attachmentCount": {
+            "description": "On a list: how many live attachments the asset has, when it has any and the organization has attachments enabled",
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
           "prompt": {
             "description": "The prompt that generated it, bounded; untrusted content",
             "type": [
@@ -10131,6 +10221,13 @@
                 "type": "null"
               }
             ]
+          },
+          "attachments": {
+            "description": "The asset's live attachments, without bodies, most recently updated first; untrusted content. Present only in organizations with attachments enabled",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentSummary"
+            }
           },
           "preview": {
             "anyOf": [
@@ -10450,6 +10547,12 @@
           "path": {
             "type": "string",
             "description": "The folder's names from the project root, such as Characters / Leo; bounded, untrusted content"
+          },
+          "attachmentCount": {
+            "description": "How many live attachments the folder has, when it has any and the organization has attachments enabled",
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -10502,6 +10605,19 @@
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "attachments": {
+            "description": "On a read of one folder: its live attachments, without bodies, most recently updated first; untrusted content. Present only in organizations with attachments enabled",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttachmentSummary"
+            }
+          },
+          "attachmentCount": {
+            "description": "On a list: how many live attachments the folder has, when it has any and the organization has attachments enabled",
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           }
         },
         "required": [
@@ -11255,6 +11371,22 @@
                     ],
                     "description": "Nano Banana edits of their own outputs continue that conversation; none sends the image alone"
                   },
+                  "layers": {
+                    "type": "object",
+                    "properties": {
+                      "max": {
+                        "description": "The most layers to return, the base layer included",
+                        "type": "integer",
+                        "minimum": 2,
+                        "maximum": 100
+                      },
+                      "textRecognition": {
+                        "description": "Also read each plain text layer's text, lines and approximate style",
+                        "type": "boolean"
+                      }
+                    },
+                    "description": "Only for image-to-layers models: each output is a layer, the base first, and the quote holds max of them"
+                  },
                   "upscaleDraft": {
                     "type": "object",
                     "properties": {
@@ -11542,7 +11674,8 @@
                 "enum": [
                   "project",
                   "folder",
-                  "clip"
+                  "clip",
+                  "asset"
                 ]
               },
               {
@@ -11565,6 +11698,46 @@
           "name"
         ]
       },
+      "AttachmentSummary": {
+        "type": "object",
+        "properties": {
+          "attachmentId": {
+            "type": "string",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
+          },
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The body's size in UTF-8 bytes"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          }
+        },
+        "required": [
+          "attachmentId",
+          "title",
+          "description",
+          "bytes",
+          "version",
+          "updatedAt"
+        ]
+      },
       "Attachment": {
         "type": "object",
         "properties": {
@@ -11576,23 +11749,27 @@
           "title": {
             "type": "string"
           },
-          "parent": {
-            "$ref": "#/components/schemas/AttachmentParent"
+          "description": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The body's size in UTF-8 bytes"
           },
           "version": {
             "type": "integer",
             "exclusiveMinimum": 0,
             "maximum": 2147483647
           },
-          "characters": {
-            "type": "integer",
-            "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
-          },
           "updatedAt": {
             "type": "string",
             "format": "date-time",
             "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+          },
+          "parent": {
+            "$ref": "#/components/schemas/AttachmentParent"
           },
           "updatedBy": {
             "type": "string"
@@ -11601,10 +11778,11 @@
         "required": [
           "attachmentId",
           "title",
-          "parent",
+          "description",
+          "bytes",
           "version",
-          "characters",
           "updatedAt",
+          "parent",
           "updatedBy"
         ]
       },
@@ -11636,6 +11814,9 @@
           "title": {
             "type": "string"
           },
+          "description": {
+            "type": "string"
+          },
           "body": {
             "type": "string"
           },
@@ -11663,6 +11844,7 @@
         },
         "required": [
           "title",
+          "description",
           "body",
           "parent",
           "version",
@@ -11707,10 +11889,11 @@
               }
             ]
           },
-          "characters": {
+          "bytes": {
             "type": "integer",
             "exclusiveMinimum": 0,
-            "maximum": 9007199254740991
+            "maximum": 9007199254740991,
+            "description": "The body's size in UTF-8 bytes"
           },
           "savedAt": {
             "type": "string",
@@ -11725,7 +11908,7 @@
           "version",
           "operation",
           "restoredFrom",
-          "characters",
+          "bytes",
           "savedAt",
           "savedBy"
         ]

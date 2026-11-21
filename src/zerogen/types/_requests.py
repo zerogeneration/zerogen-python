@@ -49,6 +49,17 @@ class CreateRunRequestOutput(TypedDict, closed=True):
     includeAudio: NotRequired[bool]
 
 
+class CreateRunRequestLayers(TypedDict, closed=True):
+    max: NotRequired[int]
+    """
+    The most layers to return, the base layer included
+    """
+    textRecognition: NotRequired[bool]
+    """
+    Also read each plain text layer's text, lines and approximate style
+    """
+
+
 class CreateRunRequestTest(TypedDict, closed=True):
     outputs: NotRequired[
         list[
@@ -117,6 +128,10 @@ class CreateRunRequest(TypedDict, closed=True):
     continuation: NotRequired[Literal["auto", "none"]]
     """
     Nano Banana edits of their own outputs continue that conversation; none sends the image alone
+    """
+    layers: NotRequired[CreateRunRequestLayers]
+    """
+    Only for image-to-layers models: each output is a layer, the base first, and the quote holds max of them
     """
     maxCostMicroUsd: NotRequired[int]
     """
@@ -903,19 +918,35 @@ class CreateAttachmentRequest(TypedDict, closed=True):
     projectId: str
     folderId: NotRequired[str]
     clipId: NotRequired[str]
+    assetId: NotRequired[str]
     title: str
     """
     Verbatim title: 1–200 characters on one line, without surrounding whitespace.
     """
+    description: str
+    """
+    What the attachment holds and when to read it: 1–200 characters on one line, without surrounding whitespace. Reads of the parent list it in place of the body.
+    """
     body: str
     """
-    Verbatim attachment text: 1–8,000 Unicode characters.
+    Verbatim attachment text: 1–65,536 bytes of UTF-8 (64 KiB).
     """
 
 
 class ReviseAttachmentRequest(TypedDict, closed=True):
     expectedVersion: int
-    body: str
+    title: NotRequired[str]
+    """
+    Verbatim title: 1–200 characters on one line, without surrounding whitespace.
+    """
+    description: NotRequired[str]
+    """
+    What the attachment holds and when to read it: 1–200 characters on one line, without surrounding whitespace. Reads of the parent list it in place of the body.
+    """
+    body: NotRequired[str]
+    """
+    Verbatim attachment text: 1–65,536 bytes of UTF-8 (64 KiB).
+    """
 
 
 class RestoreAttachmentRequest(TypedDict, closed=True):

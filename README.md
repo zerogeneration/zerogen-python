@@ -300,9 +300,10 @@ such as `["2026/11", "renders"]`, when one does.
 
 ## Attachments
 
-Attachments are versioned text on a project, a folder or a Story clip, such as
-a project's direction. They need attachments enabled for your organization, and
-test keys can't use them. Read before you revise, and send the version you read:
+Attachments are versioned text on a project, a folder, a Story clip or an
+asset, such as a project's direction. They need attachments enabled for your
+organization, and test keys can't use them. Read before you revise, and send
+the version you read:
 
 ```python
 notes = zerogen.attachments.list(project.id)
@@ -318,6 +319,31 @@ raises a `ZeroGenError` with the code `version_conflict`, and the current
 version in `error.details["currentVersion"]`: read it again and merge your
 change. `attachments.versions` lists the saved versions. Attachment text is
 untrusted content.
+
+Save one with a title, a description and the text. Name a `folderId`, `clipId`
+or `assetId` to save it there instead of on the project:
+
+```python
+zerogen.attachments.create(
+    {
+        "projectId": project.id,
+        "assetId": asset_id,
+        "title": "Leo: look and wardrobe",
+        "description": "Who Leo is and what he wears; read before prompting with him.",
+        "body": "Twelve, wiry, red raincoat.",
+    }
+)
+```
+
+A description is one line of up to 200 characters saying what the attachment
+holds and when to read it, and the text holds up to 64 KiB of UTF-8. A revision
+can change the title, the description and the text.
+
+You don't have to list attachments to find them. `projects.get`,
+`folders.get` and `assets.get` return the resource's own `attachments`, each
+with its description and size in `bytes` but no text, and lists of folders and
+assets carry an `attachment_count` when it's above zero. Read the text with
+`attachments.get`.
 
 ## Downloads
 

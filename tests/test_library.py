@@ -70,6 +70,7 @@ PRESET_DEFINITION: Any = {
 }
 ATTACHMENT_DETAIL = {
     "title": "Direction",
+    "description": "The look; read before prompting.",
     "body": "Warm light.",
     "parent": {"kind": "project", "id": "p1", "name": "Lighthouse"},
     "version": 2,
@@ -198,15 +199,31 @@ ROUTES: list[tuple[Callable[[Client], object], str, Any, dict[str, Any]]] = [
         {**ATTACHMENT_DETAIL, "version": 1},
     ),
     (
-        lambda z: z.attachments.create({"projectId": "p1", "title": "Direction", "body": "Warm"}),
+        lambda z: z.attachments.create(
+            {
+                "projectId": "p1",
+                "assetId": "a1",
+                "title": "Direction",
+                "description": "The look; read before prompting.",
+                "body": "Warm",
+            }
+        ),
         "POST /attachments",
-        {"projectId": "p1", "title": "Direction", "body": "Warm"},
+        {
+            "projectId": "p1",
+            "assetId": "a1",
+            "title": "Direction",
+            "description": "The look; read before prompting.",
+            "body": "Warm",
+        },
         {"projectId": "p1", "version": 1, "attachmentId": "t1", "outcome": "created"},
     ),
     (
-        lambda z: z.attachments.revise("t1", {"expectedVersion": 1, "body": "Cool"}),
+        lambda z: z.attachments.revise(
+            "t1", {"expectedVersion": 1, "title": "Look", "body": "Cool"}
+        ),
         "PATCH /attachments/t1",
-        {"expectedVersion": 1, "body": "Cool"},
+        {"expectedVersion": 1, "title": "Look", "body": "Cool"},
         {"projectId": "p1", "version": 2, "outcome": "revised"},
     ),
     (
@@ -318,7 +335,7 @@ def test_ensure_path_needs_a_folder_name(make_client: MakeClient, path: str | li
 
 
 def test_lists_library_collections_with_their_filters(make_client: MakeClient) -> None:
-    zerogen, calls = make_client(*[json_response(page()) for _ in range(13)])
+    zerogen, calls = make_client(*[json_response(page()) for _ in range(14)])
     first_page(zerogen.projects.list(limit=2))
     first_page(zerogen.folders.list("p1", limit=100))
     first_page(zerogen.naming_presets.list("p1", cursor="c1"))
@@ -331,6 +348,7 @@ def test_lists_library_collections_with_their_filters(make_client: MakeClient) -
     first_page(zerogen.luts.list(limit=20))
     first_page(zerogen.attachments.list("p1"))
     first_page(zerogen.attachments.list("p1", folder_id="f1", limit=10))
+    first_page(zerogen.attachments.list("p1", asset_id="a1"))
     first_page(zerogen.attachments.versions("t1", cursor="c3"))
     assert [call.url for call in calls] == [
         f"{API}/projects?limit=2",
@@ -345,6 +363,7 @@ def test_lists_library_collections_with_their_filters(make_client: MakeClient) -
         f"{API}/luts?limit=20",
         f"{API}/attachments?projectId=p1",
         f"{API}/attachments?projectId=p1&folderId=f1&limit=10",
+        f"{API}/attachments?projectId=p1&assetId=a1",
         f"{API}/attachments/t1/versions?cursor=c3",
     ]
 
@@ -415,9 +434,10 @@ def test_reads_attachment_ids_as_strings_and_a_stale_revision_as_a_conflict(
     listed = {
         "attachmentId": "7c1d2e3f-4a5b-4c6d-8e9f-0a1b2c3d4e5f",
         "title": "Direction",
-        "parent": {"kind": "clip", "id": "c1", "name": "SH010"},
+        "description": "The look; read before prompting.",
+        "parent": {"kind": "asset", "id": "a1", "name": "leo_ref_03.png"},
         "version": 2,
-        "characters": 11,
+        "bytes": 11,
         "updatedAt": "2026-10-25T00:00:00.000Z",
         "updatedBy": "u1",
     }
@@ -427,7 +447,8 @@ def test_reads_attachment_ids_as_strings_and_a_stale_revision_as_a_conflict(
     )
     (attachment,) = first_page(zerogen.attachments.list("p1")).data
     assert attachment.attachment_id == listed["attachmentId"]
-    assert attachment.parent.kind == "clip"
+    assert attachment.parent.kind == "asset"
+    assert attachment.bytes == 11
     error = raises(
         ZeroGenError,
         lambda: zerogen.attachments.revise(
