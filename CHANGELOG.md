@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0
+
+This release follows the API's new attachment contract, and breaks attachment
+code written for 0.4. Nothing else changes for existing code. Its attachment
+models need the fields the API added for this release, so 0.4's
+`attachments.list` and `attachments.versions` can't read the new API, and
+0.5 can't read an older deployment of it.
+
+- `attachments.create` needs a `description`: one line saying what the
+  attachment holds and when to read it. Lists and `get` return it.
+- An attachment's and a version's `characters` is now `bytes`, the text's size
+  in UTF-8 bytes. The text holds up to 64 KiB, up from 8,000 characters.
+- Attachments on assets: `attachments.create` takes `assetId`,
+  `attachments.list` takes `asset_id`, and a parent's `kind` can be
+  `"asset"`.
+- `attachments.revise` can change the `title` and the `description` as well
+  as the `body`; a field left out keeps its value.
+- `projects.get`, `folders.get` and `assets.get` return the resource's own
+  `attachments` as `AttachmentSummary` items, without their text. Lists of
+  folders and assets carry `attachment_count`. Both appear only where
+  attachments are enabled.
+- `runs.create` takes `layers`, for image-to-layers models.
+- Types from the current API, including new models.
+
 ## 0.4.0
 
 This release breaks compatibility with 0.3, for the API's reshaped Library and

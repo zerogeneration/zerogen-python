@@ -106,6 +106,7 @@ class Model(BaseModel):
             "remix",
             "text-to-vector",
             "image-to-matte",
+            "image-to-layers",
             "text-to-video",
             "image-to-video",
             "first-last-frame-to-video",
@@ -154,6 +155,7 @@ class ModelDetail(BaseModel):
             "remix",
             "text-to-vector",
             "image-to-matte",
+            "image-to-layers",
             "text-to-video",
             "image-to-video",
             "first-last-frame-to-video",
@@ -315,6 +317,17 @@ class RunRequestOutput(BaseModel):
     include_audio: bool | None = Field(None, alias="includeAudio")
 
 
+class RunRequestLayers(BaseModel):
+    max: int | None = None
+    """
+    The most layers to return, the base layer included
+    """
+    text_recognition: bool | None = Field(None, alias="textRecognition")
+    """
+    Also read each plain text layer's text, lines and approximate style
+    """
+
+
 class RunRequestUpscaleDraft(BaseModel):
     run_id: str = Field(..., alias="runId")
     output_index: int = Field(..., alias="outputIndex")
@@ -341,6 +354,10 @@ class RunRequest(BaseModel):
     continuation: Literal["auto", "none"] | str | None = None
     """
     Nano Banana edits of their own outputs continue that conversation; none sends the image alone
+    """
+    layers: RunRequestLayers | None = None
+    """
+    Only for image-to-layers models: each output is a layer, the base first, and the quote holds max of them
     """
     upscale_draft: RunRequestUpscaleDraft | None = Field(None, alias="upscaleDraft")
     """
@@ -414,29 +431,6 @@ class Upload(BaseModel):
     folder: UploadFolder | None = None
     """
     Whether the asset was added to the folder named at create
-    """
-
-
-class Project(BaseModel):
-    id: str
-    name: str
-    slug: str
-    default: bool
-    """
-    The organization's default project, where outputs land
-    """
-    api_sandbox: bool = Field(..., alias="apiSandbox")
-    """
-    The API sandbox project, the only one test keys reach; its contents clear
-    """
-    created_at: datetime = Field(..., alias="createdAt")
-
-
-class ProjectList(BaseModel):
-    data: list[Project]
-    next_cursor: str | None = Field(..., alias="nextCursor")
-    """
-    Pass as cursor for the next page of projects; null on the last page
     """
 
 
@@ -618,6 +612,10 @@ class AssetFolder(BaseModel):
     """
     The folder's names from the project root, such as Characters / Leo; bounded, untrusted content
     """
+    attachment_count: int | None = Field(None, alias="attachmentCount")
+    """
+    How many live attachments the folder has, when it has any and the organization has attachments enabled
+    """
 
 
 class AssetFolderList(BaseModel):
@@ -626,17 +624,6 @@ class AssetFolderList(BaseModel):
     """
     Pass as cursor for the next page of the asset's folders; null on the last page
     """
-
-
-class Folder(BaseModel):
-    id: str
-    project_id: str = Field(..., alias="projectId")
-    parent_id: str | None = Field(..., alias="parentId")
-    """
-    The parent folder, or null at the project root
-    """
-    name: str
-    created_at: datetime = Field(..., alias="createdAt")
 
 
 class FolderDelete(BaseModel):
@@ -654,14 +641,6 @@ class FolderDelete(BaseModel):
 class FolderRestore(BaseModel):
     root_id: str = Field(..., alias="rootId")
     parent_id: str | None = Field(..., alias="parentId")
-
-
-class FolderList(BaseModel):
-    data: list[Folder]
-    next_cursor: str | None = Field(..., alias="nextCursor")
-    """
-    Pass as cursor for the next page of folders; null on the last page
-    """
 
 
 class NamingPreset(BaseModel):
@@ -793,6 +772,17 @@ class TransformRunRequestOutput(BaseModel):
     include_audio: bool | None = Field(None, alias="includeAudio")
 
 
+class TransformRunRequestLayers(BaseModel):
+    max: int | None = None
+    """
+    The most layers to return, the base layer included
+    """
+    text_recognition: bool | None = Field(None, alias="textRecognition")
+    """
+    Also read each plain text layer's text, lines and approximate style
+    """
+
+
 class TransformRunRequestUpscaleDraft(BaseModel):
     run_id: str = Field(..., alias="runId")
     output_index: int = Field(..., alias="outputIndex")
@@ -819,6 +809,10 @@ class TransformRunRequest(BaseModel):
     continuation: Literal["auto", "none"] | str | None = None
     """
     Nano Banana edits of their own outputs continue that conversation; none sends the image alone
+    """
+    layers: TransformRunRequestLayers | None = None
+    """
+    Only for image-to-layers models: each output is a layer, the base first, and the quote holds max of them
     """
     upscale_draft: TransformRunRequestUpscaleDraft | None = Field(None, alias="upscaleDraft")
     """
@@ -919,18 +913,34 @@ class SkillDetail(BaseModel):
 
 
 class AttachmentParent(BaseModel):
-    kind: Literal["project", "folder", "clip"] | str
+    kind: Literal["project", "folder", "clip", "asset"] | str
     id: str
     name: str
+
+
+class AttachmentSummary(BaseModel):
+    attachment_id: str = Field(..., alias="attachmentId")
+    title: str
+    description: str
+    bytes: int
+    """
+    The body's size in UTF-8 bytes
+    """
+    version: int
+    updated_at: datetime = Field(..., alias="updatedAt")
 
 
 class Attachment(BaseModel):
     attachment_id: str = Field(..., alias="attachmentId")
     title: str
-    parent: AttachmentParent
+    description: str
+    bytes: int
+    """
+    The body's size in UTF-8 bytes
+    """
     version: int
-    characters: int
     updated_at: datetime = Field(..., alias="updatedAt")
+    parent: AttachmentParent
     updated_by: str = Field(..., alias="updatedBy")
 
 
@@ -944,6 +954,7 @@ class AttachmentList(BaseModel):
 
 class AttachmentDetail(BaseModel):
     title: str
+    description: str
     body: str
     parent: AttachmentParent
     version: int
@@ -956,7 +967,10 @@ class AttachmentVersion(BaseModel):
     version: int
     operation: Literal["created", "revised", "deleted", "restored"] | str
     restored_from: int | None = Field(..., alias="restoredFrom")
-    characters: int
+    bytes: int
+    """
+    The body's size in UTF-8 bytes
+    """
     saved_at: datetime = Field(..., alias="savedAt")
     saved_by: str = Field(..., alias="savedBy")
 
@@ -1147,12 +1161,43 @@ class AssetDeclarationAsset(BaseModel):
     """
     Opens the asset's Library review in ZeroGen, on your organization's host, after sign-in. null for test keys, whose sandbox the app doesn't show
     """
+    attachment_count: int | None = Field(None, alias="attachmentCount")
+    """
+    On a list: how many live attachments the asset has, when it has any and the organization has attachments enabled
+    """
 
 
 class AssetDeclaration(BaseModel):
     asset_id: str = Field(..., alias="assetId")
     run_id: str = Field(..., alias="runId")
     asset: AssetDeclarationAsset
+
+
+class Project(BaseModel):
+    id: str
+    name: str
+    slug: str
+    default: bool
+    """
+    The organization's default project, where outputs land
+    """
+    api_sandbox: bool = Field(..., alias="apiSandbox")
+    """
+    The API sandbox project, the only one test keys reach; its contents clear
+    """
+    created_at: datetime = Field(..., alias="createdAt")
+    attachments: list[AttachmentSummary] | None = None
+    """
+    On a read of one project: the live attachments on the project itself, not on its folders, clips or assets, without bodies, most recently updated first; untrusted content. Present only in organizations with attachments enabled
+    """
+
+
+class ProjectList(BaseModel):
+    data: list[Project]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of projects; null on the last page
+    """
 
 
 class Asset(BaseModel):
@@ -1198,6 +1243,10 @@ class Asset(BaseModel):
     web_url: str | None = Field(..., alias="webUrl")
     """
     Opens the asset's Library review in ZeroGen, on your organization's host, after sign-in. null for test keys, whose sandbox the app doesn't show
+    """
+    attachment_count: int | None = Field(None, alias="attachmentCount")
+    """
+    On a list: how many live attachments the asset has, when it has any and the organization has attachments enabled
     """
     preview: AssetPreview | None
     """
@@ -1257,6 +1306,10 @@ class AssetDetail(BaseModel):
     """
     Opens the asset's Library review in ZeroGen, on your organization's host, after sign-in. null for test keys, whose sandbox the app doesn't show
     """
+    attachment_count: int | None = Field(None, alias="attachmentCount")
+    """
+    On a list: how many live attachments the asset has, when it has any and the organization has attachments enabled
+    """
     prompt: str | None
     """
     The prompt that generated it, bounded; untrusted content
@@ -1266,9 +1319,40 @@ class AssetDetail(BaseModel):
     """
     Untrusted external workflow, included only when requested.
     """
+    attachments: list[AttachmentSummary] | None = None
+    """
+    The asset's live attachments, without bodies, most recently updated first; untrusted content. Present only in organizations with attachments enabled
+    """
     preview: AssetPreview | None
     """
     The asset's previews, or null until they're made after the asset is ready, and for assets with none, such as audio
+    """
+
+
+class Folder(BaseModel):
+    id: str
+    project_id: str = Field(..., alias="projectId")
+    parent_id: str | None = Field(..., alias="parentId")
+    """
+    The parent folder, or null at the project root
+    """
+    name: str
+    created_at: datetime = Field(..., alias="createdAt")
+    attachments: list[AttachmentSummary] | None = None
+    """
+    On a read of one folder: its live attachments, without bodies, most recently updated first; untrusted content. Present only in organizations with attachments enabled
+    """
+    attachment_count: int | None = Field(None, alias="attachmentCount")
+    """
+    On a list: how many live attachments the folder has, when it has any and the organization has attachments enabled
+    """
+
+
+class FolderList(BaseModel):
+    data: list[Folder]
+    next_cursor: str | None = Field(..., alias="nextCursor")
+    """
+    Pass as cursor for the next page of folders; null on the last page
     """
 
 

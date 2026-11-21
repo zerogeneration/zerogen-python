@@ -31,8 +31,8 @@ def _path(attachment_id: str) -> str:
 
 
 class Attachments:
-    """Versioned text on projects, folders and Story clips. Every request needs attachments
-    enabled for the organization; test keys can't use them."""
+    """Versioned text on projects, folders, Story clips and assets. Every request needs
+    attachments enabled for the organization; test keys can't use them."""
 
     def __init__(self, client: ZeroGen) -> None:
         self._client = client
@@ -44,17 +44,20 @@ class Attachments:
         *,
         folder_id: str | None = None,
         clip_id: str | None = None,
+        asset_id: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         **options: Unpack[RequestOptions],
     ) -> Page[Attachment]:
-        """Lists a project's live attachments, including its folders' and Story clips', most
-        recently updated first, without their text.
+        """Lists a project's live attachments, including its folders', Story clips' and
+        assets', most recently updated first. Each has its `description` and its text's size
+        in `bytes`, without the text.
 
         Args:
-            folder_id: Only this folder's attachments. Send at most one of `folder_id` and
-                `clip_id`.
+            folder_id: Only this folder's attachments. Send at most one of `folder_id`,
+                `clip_id` and `asset_id`.
             clip_id: Only this Story clip's attachments.
+            asset_id: Only this asset's attachments.
             limit: Attachments per page, up to 100; default 50.
             cursor: `next_cursor` from an earlier page, with the same filters.
         """
@@ -65,6 +68,7 @@ class Attachments:
                 "projectId": project_id,
                 "folderId": folder_id,
                 "clipId": clip_id,
+                "assetId": asset_id,
                 "limit": limit,
                 "cursor": cursor,
             },
@@ -96,9 +100,12 @@ class Attachments:
     def create(
         self, body: CreateAttachmentRequest, /, **options: Unpack[PostRequestOptions]
     ) -> AttachmentCreate:
-        """Saves text on `projectId`, or on one of its folders or Story clips with `folderId` or
-        `clipId`. The same title and text on the same parent return the existing attachment
-        with `outcome` `"unchanged"`; the same title with other text is refused."""
+        """Saves text on `projectId`, or on one of its folders, Story clips or assets with
+        `folderId`, `clipId` or `assetId`: at most one. `description` says what the attachment
+        holds and when to read it, and reads of the parent list it in place of the text, which
+        holds up to 64 KiB of UTF-8. The same title, description and text on the same parent
+        return the existing attachment with `outcome` `"unchanged"`; the same title with other
+        text is refused."""
         return self._client._request(
             AttachmentCreate.model_validate, "POST", "/attachments", body=body, options=options
         )
@@ -110,7 +117,8 @@ class Attachments:
         /,
         **options: Unpack[PostRequestOptions],
     ) -> AttachmentRevise:
-        """Saves new text as a new version. `expectedVersion` must be the current version, or
+        """Saves a new `title`, `description` or `body`, or any of them together, as a new
+        version; a field left out keeps its value. `expectedVersion` must be the current version, or
         the API refuses it with `409 version_conflict` and the current version in the error's
         `details["currentVersion"]`: read it again and merge your change. The same text returns
         `outcome` `"unchanged"`."""
@@ -187,8 +195,8 @@ class Attachments:
 
 
 class AsyncAttachments:
-    """Versioned text on projects, folders and Story clips. Every request needs attachments
-    enabled for the organization; test keys can't use them."""
+    """Versioned text on projects, folders, Story clips and assets. Every request needs
+    attachments enabled for the organization; test keys can't use them."""
 
     def __init__(self, client: AsyncZeroGen) -> None:
         self._client = client
@@ -200,17 +208,20 @@ class AsyncAttachments:
         *,
         folder_id: str | None = None,
         clip_id: str | None = None,
+        asset_id: str | None = None,
         limit: int | None = None,
         cursor: str | None = None,
         **options: Unpack[RequestOptions],
     ) -> AsyncPaginator[Attachment]:
-        """Lists a project's live attachments, including its folders' and Story clips', most
-        recently updated first, without their text.
+        """Lists a project's live attachments, including its folders', Story clips' and
+        assets', most recently updated first. Each has its `description` and its text's size
+        in `bytes`, without the text.
 
         Args:
-            folder_id: Only this folder's attachments. Send at most one of `folder_id` and
-                `clip_id`.
+            folder_id: Only this folder's attachments. Send at most one of `folder_id`,
+                `clip_id` and `asset_id`.
             clip_id: Only this Story clip's attachments.
+            asset_id: Only this asset's attachments.
             limit: Attachments per page, up to 100; default 50.
             cursor: `next_cursor` from an earlier page, with the same filters.
         """
@@ -221,6 +232,7 @@ class AsyncAttachments:
                 "projectId": project_id,
                 "folderId": folder_id,
                 "clipId": clip_id,
+                "assetId": asset_id,
                 "limit": limit,
                 "cursor": cursor,
             },
@@ -252,9 +264,12 @@ class AsyncAttachments:
     async def create(
         self, body: CreateAttachmentRequest, /, **options: Unpack[PostRequestOptions]
     ) -> AttachmentCreate:
-        """Saves text on `projectId`, or on one of its folders or Story clips with `folderId` or
-        `clipId`. The same title and text on the same parent return the existing attachment
-        with `outcome` `"unchanged"`; the same title with other text is refused."""
+        """Saves text on `projectId`, or on one of its folders, Story clips or assets with
+        `folderId`, `clipId` or `assetId`: at most one. `description` says what the attachment
+        holds and when to read it, and reads of the parent list it in place of the text, which
+        holds up to 64 KiB of UTF-8. The same title, description and text on the same parent
+        return the existing attachment with `outcome` `"unchanged"`; the same title with other
+        text is refused."""
         return await self._client._request(
             AttachmentCreate.model_validate, "POST", "/attachments", body=body, options=options
         )
@@ -266,7 +281,8 @@ class AsyncAttachments:
         /,
         **options: Unpack[PostRequestOptions],
     ) -> AttachmentRevise:
-        """Saves new text as a new version. `expectedVersion` must be the current version, or
+        """Saves a new `title`, `description` or `body`, or any of them together, as a new
+        version; a field left out keeps its value. `expectedVersion` must be the current version, or
         the API refuses it with `409 version_conflict` and the current version in the error's
         `details["currentVersion"]`: read it again and merge your change. The same text returns
         `outcome` `"unchanged"`."""
